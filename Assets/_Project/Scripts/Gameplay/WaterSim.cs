@@ -324,13 +324,13 @@ public class WaterSim : MonoBehaviour
         }
         if (lavaHits >= 2 && Time.time >= sizzleCooldown && SfxPlayer.I != null)
         {
-            SfxPlayer.PlaySnippet(SfxPlayer.I.lavaSizzle, lavaSum / lavaHits, 1.8f, Mathf.Clamp(0.25f + 0.04f * lavaHits, 0.25f, 0.9f));
-            sizzleCooldown = Time.time + 0.7f;
+            SfxPlayer.PlaySnippet(SfxPlayer.I.lavaSizzle, lavaSum / lavaHits, 2.4f, Mathf.Clamp(0.3f + 0.04f * lavaHits, 0.3f, 0.9f));
+            sizzleCooldown = Time.time + 1.6f;   // temiz: ust uste binmesin
         }
-        if (lavaHits >= 3 && Time.time >= steamCooldown)
+        if (lavaHits >= 4 && Time.time >= steamCooldown)
         {
-            Fx.Steam(lavaSum / lavaHits, 0.3f + 0.03f * Mathf.Min(lavaHits, 12));
-            steamCooldown = Time.time + 0.18f;
+            Fx.Steam(lavaSum / lavaHits, 0.22f + 0.015f * Mathf.Min(lavaHits, 10));
+            steamCooldown = Time.time + 0.6f;
         }
     }
 
@@ -717,10 +717,10 @@ public class WaterSim : MonoBehaviour
             var rnd = new Unity.Mathematics.Random(P.seed | 1u);
             int n0 = n;
             int spawned = 0;
-            for (int i = 0; i < n0 && spawned < 8; i++)
+            for (int i = 0; i < n0 && spawned < 2; i++)
             {
-                if (kind[i] != 1 || impact[i] < 2.4f) continue;
-                for (int s = 0; s < 2; s++)
+                if (kind[i] != 1 || impact[i] < 3.6f) continue;
+                for (int s = 0; s < 1; s++)
                 {
                     if (n >= Capacity - 2) break;
                     float2 lat = rnd.NextFloat2(-1f, 1f) * impact[i] * 0.22f;

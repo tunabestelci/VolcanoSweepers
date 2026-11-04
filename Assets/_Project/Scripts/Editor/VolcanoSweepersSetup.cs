@@ -451,15 +451,13 @@ public static class VolcanoSweepersSetup
             if (mesh != null) { sim.mesh = mesh; break; }
         }
         var sfx = sys.AddComponent<SfxPlayer>();
-        sfx.steamHiss = Clip("steam_hiss");
+        // Lav sesleri: yalnizca kullanicinin verdigi "heavy bubbles" kaydi (su lava dokulunce)
         sfx.waterPour = Clip("water_pour");
         sfx.waterFill = Clip("water_fill");
-        sfx.bubblePop = Clip("bubble_pop");
         sfx.pickaxeHit = Clip("pickaxe_hit");
         sfx.obsidianBreak = Clip("obsidian_break");
         sfx.pickup = Clip("pickup");
-        sfx.lavaAmbient = Clip("lava_ambient");
-        sfx.lavaSizzle = AssetDatabase.LoadAssetAtPath<AudioClip>(Sfx + "hot_bubbling_mud.mp3");
+        sfx.lavaSizzle = AssetDatabase.LoadAssetAtPath<AudioClip>(Sfx + "heavy_bubbles.mp3");
 
         // Oyuncu
         var player = new GameObject("Player");

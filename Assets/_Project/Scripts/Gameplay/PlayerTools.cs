@@ -20,7 +20,10 @@ public class PlayerTools : MonoBehaviour
         public float fill;          // 0..1
         public bool busy;
         public float bobPhase;
+        public int ores;            // kovadaki cevher sayisi (en fazla OresPerBucket)
     }
+
+    public const int OresPerBucket = 5;
 
     public PlayerController player;
     public Camera cam;
@@ -33,7 +36,8 @@ public class PlayerTools : MonoBehaviour
     public float pickupRange = 3.5f;
 
     public Tool CurrentTool { get; private set; } = Tool.Buckets;
-    public int CoreCount { get; private set; }
+    public int CoreCount => (left != null ? left.ores : 0) + (right != null ? right.ores : 0);
+    public int CoreCapacity => OresPerBucket * 2;
     public string Hint { get; private set; } = "";
     float hintUntil;
 
@@ -127,17 +131,40 @@ public class PlayerTools : MonoBehaviour
         var w = h.item.transform.Find("Water");
         h.water = w;
         UpdateWater(h);
+        BuildOreViews(h);
+    }
+
+    // Kovanin icindeki cevherleri gorsel olarak diz (tabanda yigin)
+    void BuildOreViews(Hand h)
+    {
+        if (h.item == null || coreVisualPrefab == null || h.ores <= 0) return;
+        var bw = h.water != null ? h.water.GetComponent<BucketWater>() : null;
+        float floorY = bw != null ? bw.emptyY : 0.02f;
+        var holder = new GameObject("Ores").transform;
+        holder.SetParent(h.item.transform, false);
+        for (int i = 0; i < h.ores; i++)
+        {
+            var o = Instantiate(coreVisualPrefab, holder);
+            foreach (var c in o.GetComponentsInChildren<Collider>()) Destroy(c);
+            var rends = o.GetComponentsInChildren<Renderer>();
+            float size = 0.0001f;
+            if (rends.Length > 0)
+            {
+                var b = rends[0].bounds;
+                foreach (var r in rends) b.Encapsulate(r.bounds);
+                size = Mathf.Max(b.size.x, b.size.y, b.size.z, 0.0001f);
+            }
+            o.transform.localScale = Vector3.one * (0.075f / size) * o.transform.localScale.x;
+            float a = i * 2.4f;
+            float rad = i == 0 ? 0f : 0.045f;
+            o.transform.localPosition = new Vector3(Mathf.Cos(a) * rad, floorY + 0.03f + (i == 0 ? 0.035f : 0f), Mathf.Sin(a) * rad);
+            o.transform.localRotation = Quaternion.Euler(i * 57f, i * 91f, i * 33f);
+        }
     }
 
     void RefreshHeldCore()
     {
         if (heldCore != null) { Destroy(heldCore); heldCore = null; }
-        if (CoreCount > 0 && CurrentTool == Tool.Pickaxe && coreVisualPrefab != null)
-        {
-            heldCore = Instantiate(coreVisualPrefab, left.root);
-            heldCore.transform.localPosition = Vector3.zero;
-            heldCore.transform.localRotation = Quaternion.identity;
-        }
     }
 
     static void UpdateWater(Hand h)
@@ -263,6 +290,7 @@ public class PlayerTools : MonoBehaviour
 
         if (isWater)
         {
+            if (h.ores > 0) { SetHint("Kovada cevher var - su alinamaz"); return; }
             if (h.fill > 0.95f) { SetHint("Kova zaten dolu"); return; }
             var big = source != null ? source.GetComponent<BigBucket>() : null;
             if (big != null && !big.TryTake()) { SetHint(big.locked ? "Kova henuz yukari cikmadi" : "Kuyu kovasi bos - kuyuya bakip E ile su cek"); return; }
@@ -469,11 +497,28 @@ public class PlayerTools : MonoBehaviour
             SetHint("Yakinda cekirdek yok (kuyuya bakip E: su cek)");
             return;
         }
+        // Cevher kovaya girer: once yarisi dolu kova, sonra bos kova (kovada su varsa girmez)
+        Hand target = null;
+        foreach (var h in new[] { left, right })
+            if (h.ores > 0 && h.ores < OresPerBucket) { target = h; break; }
+        if (target == null)
+            foreach (var h in new[] { left, right })
+                if (h.ores == 0 && h.fill < 0.05f) { target = h; break; }
+        if (target == null)
+        {
+            SetHint(CoreCount >= CoreCapacity ? "Kovalar dolu (kova basi 5 cevher)" : "Kovada su var - once bosalt");
+            return;
+        }
         SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.pickup : null, core.transform.position, 0.8f);
         Destroy(core.gameObject);
-        CoreCount++;
-        if (CurrentTool != Tool.Pickaxe) { SetHint("Cekirdek alindi (2: kazma ile elinde gorursun)"); }
-        RefreshHeldCore();
+        target.ores++;
+        if (target.item != null)
+        {
+            var old = target.item.transform.Find("Ores");
+            if (old != null) Destroy(old.gameObject);
+            BuildOreViews(target);
+        }
+        SetHint($"Cevher kovaya girdi ({CoreCount}/{CoreCapacity})");
         StartCoroutine(ReachLeft());
     }
 

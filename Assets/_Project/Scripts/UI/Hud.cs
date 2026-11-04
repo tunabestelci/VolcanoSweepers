@@ -32,7 +32,7 @@ public class Hud : MonoBehaviour
         GUI.color = new Color(1f, 0.5f, 0.1f, 1f);
         GUI.DrawTexture(new Rect(pad, pad + h * 0.05f, w * 0.25f * field.Progress, h * 0.014f), Texture2D.whiteTexture);
         GUI.color = Color.white;
-        GUI.Label(new Rect(pad, pad + h * 0.075f, w * 0.5f, h * 0.05f), $"Litik cekirdek: {tools.CoreCount}", label);
+        GUI.Label(new Rect(pad, pad + h * 0.075f, w * 0.5f, h * 0.05f), $"Kovadaki cevher: {tools.CoreCount}/{tools.CoreCapacity}  (kova basi {PlayerTools.OresPerBucket})", label);
 
         // Ipucu
         if (!string.IsNullOrEmpty(tools.Hint))
