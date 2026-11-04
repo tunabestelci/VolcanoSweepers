@@ -9,6 +9,7 @@ Shader "VolcanoSweepers/LiquidVessel"
         _SurfaceColor("Surface Color", Color) = (0.45, 0.72, 0.95, 1)
         _Smoothness("Smoothness", Range(0, 1)) = 0.9
         _FillY("Fill Plane Y (world)", Float) = 0
+        _SectionZ("Section Z (test)", Float) = 1000000
     }
 
     SubShader
@@ -41,6 +42,7 @@ Shader "VolcanoSweepers/LiquidVessel"
                 float4 _SurfaceColor;
                 float _Smoothness;
                 float _FillY;
+                float _SectionZ;
             CBUFFER_END
 
             struct Attributes
@@ -74,6 +76,7 @@ Shader "VolcanoSweepers/LiquidVessel"
             half4 frag(Varyings IN, FRONT_FACE_TYPE isFront : FRONT_FACE_SEMANTIC) : SV_Target
             {
                 clip(_FillY - IN.positionWS.y);
+                clip(_SectionZ - IN.positionWS.z);
                 bool front = IS_FRONT_VFACE(isFront, true, false);
 
                 float3 normalWS = front ? normalize(IN.normalWS) : float3(0, 1, 0);

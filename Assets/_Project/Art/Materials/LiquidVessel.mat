@@ -30,6 +30,7 @@ Material:
     m_Ints: []
     m_Floats:
     - _FillY: 0
+    - _SectionZ: 1000000
     - _Smoothness: 0.92
     m_Colors:
     - _Color: {r: 0.35, g: 0.62, b: 0.9, a: 1}

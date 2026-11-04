@@ -25,9 +25,10 @@ public class BigBucket : MonoBehaviour
     {
         if (!collectsParticles) return;
         float s = transform.lossyScale.y;
-        Vector3 c = transform.position;
-        float half = 0.17f * s;
-        WaterSim.RegisterContainer(this, c, half * 0.93f, half * 1.05f, c.y - half, c.y + half - 0.03f, 0.12f);
+        float R = info != null ? info.rimRadius * s : 0.15f * s;
+        float yFloor = info != null ? transform.TransformPoint(new Vector3(0f, info.emptyY, 0f)).y : transform.position.y - 0.15f * s;
+        float yRim = info != null ? transform.TransformPoint(new Vector3(0f, info.fullY, 0f)).y : transform.position.y + 0.15f * s;
+        WaterSim.RegisterContainer(this, transform.position, R * 0.95f, R * 1.12f, yFloor, yRim - 0.03f, 0.12f);
     }
 
     public void AddParticle()
@@ -54,7 +55,6 @@ public class BigBucket : MonoBehaviour
     {
         if (water == null) return;
         water.gameObject.SetActive(fill > 0.02f);
-        if (info != null)
-            water.localPosition = new Vector3(0f, Mathf.Lerp(info.emptyY, info.fullY, fill), 0f);
+        if (info != null) info.SetFill(fill);
     }
 }

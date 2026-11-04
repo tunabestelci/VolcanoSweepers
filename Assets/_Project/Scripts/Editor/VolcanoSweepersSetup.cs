@@ -309,27 +309,29 @@ public static class VolcanoSweepersSetup
 
         // Kova + su gorseli
         var bucket = Wrap("Bucket", Art + "/Models/Bucket/Bucket.fbx", 0.34f, BucketEuler, m.bucket, out var bb);
-        var water = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-        water.name = "Water";
-        Object.DestroyImmediate(water.GetComponent<Collider>());
-        water.GetComponent<MeshRenderer>().sharedMaterial = m.water;
+        // Suyun hacmi: kovanin gercek ic sekline gore uretilir
+        var water = new GameObject("Water");
         water.transform.SetParent(bucket.transform, false);
-        float dia = Mathf.Min(bb.size.x, bb.size.z) * 0.9f;
-        water.transform.localScale = new Vector3(dia, 0.01f, dia);
+        var innerProfile = BucketProfile.Inner(bucket);
+        var waterMesh = BucketProfile.BuildWaterMesh(innerProfile, out float wVol, out float[] wTable, out float wRim, out float wFloor, out float wFull);
+        Directory.CreateDirectory(Art + "/Models/Bucket/Parts");
+        AssetDatabase.DeleteAsset(Art + "/Models/Bucket/Parts/BucketWaterVolume.asset");
+        AssetDatabase.CreateAsset(waterMesh, Art + "/Models/Bucket/Parts/BucketWaterVolume.asset");
+        waterMesh = AssetDatabase.LoadAssetAtPath<Mesh>(Art + "/Models/Bucket/Parts/BucketWaterVolume.asset");
         var bw = water.AddComponent<BucketWater>();
-        bw.emptyY = -bb.extents.y + 0.03f;
-        bw.fullY = bb.extents.y - 0.01f;
+        bw.emptyY = wFloor;
+        bw.fullY = wFull;
+        bw.rimRadius = wRim;
+        bw.totalVolume = wVol;
+        bw.levelTable = wTable;
         water.transform.localPosition = new Vector3(0f, bw.emptyY, 0f);
+        Debug.Log($"[Bucket] ic profil noktasi={innerProfile.Count} taban={wFloor:F3} agiz={wFull:F3} agiz yaricapi={wRim:F3} hacim={wVol * 1000f:F2} L (kova birimi)");
 
-        // Suyun govdesi: tabandan yuzeye kadar dolu hacim
-        var body = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-        body.name = "WaterBody";
-        Object.DestroyImmediate(body.GetComponent<Collider>());
-        body.GetComponent<MeshRenderer>().sharedMaterial = m.liquid;
+        var body = new GameObject("WaterBody");
+        body.AddComponent<MeshFilter>().sharedMesh = waterMesh;
+        body.AddComponent<MeshRenderer>().sharedMaterial = m.liquid;
+        body.GetComponent<MeshRenderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         body.transform.SetParent(bucket.transform, false);
-        float bodyDia = Mathf.Min(bb.size.x, bb.size.z) * 0.86f;
-        body.transform.localScale = new Vector3(bodyDia, 0.01f, bodyDia);
-        body.transform.localPosition = new Vector3(0f, bw.emptyY, 0f);
         body.SetActive(false);
         ps.bucket = Save(bucket, "Bucket");
 

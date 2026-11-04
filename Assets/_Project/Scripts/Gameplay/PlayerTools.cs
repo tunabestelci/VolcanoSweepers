@@ -144,14 +144,8 @@ public class PlayerTools : MonoBehaviour
     {
         if (h.water == null) return;
         h.water.gameObject.SetActive(h.fill > 0.02f);
-        var s = h.water.localScale;
-        // Su yuzeyi bucket prefabinda 'WaterBaseY' / 'WaterFullY' degerleri ile kurulur
-        var info = h.water.GetComponent<BucketWater>();
-        if (info != null)
-        {
-            h.water.localPosition = new Vector3(0f, Mathf.Lerp(info.emptyY, info.fullY, h.fill), 0f);
-        }
-        h.water.localScale = s;
+        var bw = h.water.GetComponent<BucketWater>();
+        if (bw != null) bw.SetFill(h.fill);
     }
 
     // ---------- Girdi ----------
@@ -329,11 +323,10 @@ public class PlayerTools : MonoBehaviour
             // --- kova geometrisi (dunya uzayi) ---
             Transform bt = h.item.transform;
             float sc = bt.lossyScale.y;
-            float R = body.localScale.x * 0.5f * sc;                       // ic yaricap
-            float H = (bw.fullY - bw.emptyY) * sc;                         // ic yukseklik
-            float vol = Mathf.PI * R * R * H;
+            float R = bw.rimRadius * sc;                                   // agizdaki ic yaricap
+            float vol = bw.totalVolume * sc * sc * sc;                     // ic hacim
             Vector3 u = bt.up;
-            float levelLocal = Mathf.Lerp(bw.emptyY, bw.fullY, h.fill);
+            float levelLocal = bw.LevelY(h.fill);
             float yPlane = bt.TransformPoint(new Vector3(0f, levelLocal, 0f)).y;
             Vector3 rimC = bt.TransformPoint(new Vector3(0f, bw.fullY, 0f));
             Vector3 dl = Vector3.down - u * Vector3.Dot(Vector3.down, u);
