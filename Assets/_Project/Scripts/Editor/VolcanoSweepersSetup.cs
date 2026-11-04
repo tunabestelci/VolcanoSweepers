@@ -857,35 +857,23 @@ public static class VolcanoSweepersSetup
         var wlight = wl.AddComponent<Light>();
         wlight.type = LightType.Point; wlight.color = new Color(0.45f, 0.65f, 0.9f); wlight.range = 6f; wlight.intensity = 3f;
 
-        // Buyuk kova (kuyunun onunde, devrilen kovanin altinda)
-        float bigScale = 2.4f;
-        var bigGo = (GameObject)PrefabUtility.InstantiatePrefab(bucketPrefab, root);
-        bigGo.name = "BigBucket";
-        bigGo.transform.position = wellPos + toPad * 1.65f + new Vector3(0f, 0.34f * bigScale * 0.5f, 0f);
-        bigGo.transform.localScale = Vector3.one * bigScale;
-        var bcol = bigGo.AddComponent<CapsuleCollider>();
-        bcol.direction = 1;
-        bcol.radius = 0.34f * 0.5f * 1.05f;
-        bcol.height = 0.34f;
-        bigGo.AddComponent<WaterSource>();
-        var big = bigGo.AddComponent<BigBucket>();
-        big.collectsParticles = true;
-        Prim(PrimitiveType.Cylinder, "BigBucketBase", root, wellPos + toPad * 1.65f + new Vector3(0f, 0.03f, 0f), new Vector3(1.3f, 0.06f, 1.3f), m.concrete);
-        var pourT = new GameObject("PourTarget").transform;
-        pourT.SetParent(root, false);
-        pourT.position = bigGo.transform.position + Vector3.up * (0.34f * bigScale * 0.5f);
-
         // Kuyu kovasi + ip
         float axisY = pivot != null ? pivot.position.y : wellPos.y + 1.7f;
         float logR = 0.14f * WellScale;
         Vector3 anchor = new Vector3(wellPos.x, axisY - logR, wellPos.z);
-        float hangScale = 2.0f;
+        float hangScale = Mathf.Pow(12f, 1f / 3f);       // hacim 12 kat => olcek 12^(1/3) = 2.289
         float topY = axisY - logR - 0.34f * hangScale * 0.5f - 0.06f;
         var hang = (GameObject)PrefabUtility.InstantiatePrefab(bucketPrefab, root);
         hang.name = "WellBucket";
         hang.transform.localScale = Vector3.one * hangScale;
         hang.transform.position = new Vector3(wellPos.x, topY, wellPos.z);
         var hangFill = hang.AddComponent<BigBucket>();
+        hangFill.capacity = 12;                          // hacmi el kovasinin 12 kati: bir cekis 12 doldurma
+        hang.AddComponent<WaterSource>();
+        var hcol = hang.AddComponent<CapsuleCollider>();
+        hcol.direction = 1;
+        hcol.radius = 0.17f;
+        hcol.height = 0.34f;
         var rope = Prim(PrimitiveType.Cylinder, "WellRope", root, new Vector3(wellPos.x, topY + 0.3f, wellPos.z), new Vector3(0.035f, 0.3f, 0.035f), m.wood);
 
         var wellComp = wellRoot.AddComponent<WaterWell>();
@@ -893,10 +881,7 @@ public static class VolcanoSweepersSetup
         wellComp.bucket = hang.transform;
         wellComp.bucketFill = hangFill;
         wellComp.rope = rope.transform;
-        wellComp.big = big;
-        wellComp.pourTarget = pourT;
         wellComp.anchor = anchor;
-        wellComp.tipDir = toPad;
         wellComp.topY = topY;
         wellComp.bottomY = waterLevel + 0.25f;
         wellComp.waterY = waterLevel;

@@ -7,6 +7,7 @@ public class BigBucket : MonoBehaviour
     public int capacity = 6;                  // kac kucuk kova doldurabilir
     public bool collectsParticles;            // fizik suyunu toplar (buyuk kova)
     public float fillPerParticle = 0.5f / 900f;
+    public bool locked;                       // hareket ederken su alinamaz (kuyu kovasi)
 
     Transform water;
     BucketWater info;
@@ -46,7 +47,7 @@ public class BigBucket : MonoBehaviour
     public bool TryTake()
     {
         float step = 1f / capacity;
-        if (fill < step - 0.001f) return false;
+        if (locked || fill < step - 0.001f) return false;
         SetFill(fill - step);
         return true;
     }

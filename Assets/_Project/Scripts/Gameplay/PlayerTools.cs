@@ -254,7 +254,7 @@ public class PlayerTools : MonoBehaviour
         {
             if (h.fill > 0.95f) { SetHint("Kova zaten dolu"); return; }
             var big = source != null ? source.GetComponent<BigBucket>() : null;
-            if (big != null && !big.TryTake()) { SetHint("Buyuk kova bos - kuyudan su cek (E)"); return; }
+            if (big != null && !big.TryTake()) { SetHint(big.locked ? "Kova henuz yukari cikmadi" : "Kuyu kovasi bos - kuyuya bakip E ile su cek"); return; }
             StartCoroutine(FillRoutine(h, point));
             return;
         }
