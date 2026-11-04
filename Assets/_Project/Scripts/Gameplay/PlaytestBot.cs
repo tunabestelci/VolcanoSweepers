@@ -71,17 +71,29 @@ public class PlaytestBot : MonoBehaviour
         player.LookAt(Surface(0f, spawn.z + 12f));
         yield return Shot("01_start");
 
-        // Sag kova: istasyondaki su haznesinden doldur
-        var trough = GameObject.Find("TroughWater");
-        Vector3 water = trough != null ? trough.transform.position : spawn;
-        player.Teleport(new Vector3(water.x - 1.5f, spawn.y, water.z + 2.2f));
+        // Kuyudan buyuk kovaya su cek, sonra kovayi buyuk kovadan doldur
+        var well = FindFirstObjectByType<WaterWell>();
+        var big = FindFirstObjectByType<BigBucket>();
+        Vector3 wp = well.transform.position + Vector3.up * 0.8f;
+        player.Teleport(new Vector3(wp.x - 3.2f, spawn.y, wp.z - 0.5f));
         yield return new WaitForSeconds(0.3f);
-        player.LookAt(water);
-        yield return new WaitForSeconds(0.3f);
+        player.LookAt(wp);
+        yield return new WaitForSeconds(0.2f);
+        yield return Shot("01b_well");
+        tools.DoPull();
+        yield return new WaitForSeconds(1.3f);
+        yield return Shot("02_pull");
+        yield return new WaitForSeconds(1.6f);
+        Debug.Log($"[BOT] buyuk kova dolu: {big.Fill:F2}");
+        player.Teleport(new Vector3(big.transform.position.x - 1.4f, spawn.y, big.transform.position.z - 0.2f));
+        yield return new WaitForSeconds(0.2f);
+        player.LookAt(big.transform.position + Vector3.up * 0.4f);
+        yield return new WaitForSeconds(0.2f);
         tools.DoBucket(false);
         yield return new WaitForSeconds(0.8f);
         yield return Shot("02_fill");
         yield return WaitIdle();
+        Debug.Log($"[BOT] buyuk kova sonra: {big.Fill:F2}");
 
         // Lav gol kenarina yuru, sonra dok (basili tutma simulasyonu)
         Vector3 shore = new Vector3(0f, 0f, -(R - 9f));

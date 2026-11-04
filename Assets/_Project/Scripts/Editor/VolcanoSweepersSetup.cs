@@ -399,7 +399,7 @@ public static class VolcanoSweepersSetup
         // Volkan arazisi (kullanicinin yukseklik haritasi) + ekipman istasyonu
         var env = new GameObject("Environment").transform;
         Vector3 pad = BuildTerrain(m, env);
-        BuildStation(m, pad);
+        BuildStation(m, pad, prefabs.bucket);
 
         // Krateri dolduran lav golu (surekli yuzey, kare yok)
         var lavaGo = new GameObject("LavaField");
@@ -619,7 +619,7 @@ public static class VolcanoSweepersSetup
         return go;
     }
 
-    static void BuildStation(MatSet m, Vector3 c)
+    static void BuildStation(MatSet m, Vector3 c, GameObject bucketPrefab)
     {
         var root = new GameObject("EquipmentStation").transform;
         root.position = c;
@@ -627,37 +627,42 @@ public static class VolcanoSweepersSetup
         // Beton platform
         Prim(PrimitiveType.Cylinder, "Slab", root, c + new Vector3(0f, -0.04f, 0f), new Vector3(15f, 0.08f, 15f), m.concrete);
 
-        // Su kazani (yatay silindir + kubbeler) ve ayaklari
-        Vector3 bc = c + new Vector3(5.5f, 2.6f, -4.4f);
-        var boiler = Prim(PrimitiveType.Cylinder, "WaterBoiler", root, bc, new Vector3(2.6f, 3.2f, 2.6f), m.metal, true);
-        boiler.transform.rotation = Quaternion.Euler(0f, 0f, 90f);
-        Prim(PrimitiveType.Sphere, "BoilerCapL", root, bc + new Vector3(-3.2f, 0f, 0f), new Vector3(2.6f, 2.6f, 2.6f), m.metal);
-        Prim(PrimitiveType.Sphere, "BoilerCapR", root, bc + new Vector3(3.2f, 0f, 0f), new Vector3(2.6f, 2.6f, 2.6f), m.metal);
-        for (int i = 0; i < 2; i++)
-            for (int j = 0; j < 2; j++)
-                Prim(PrimitiveType.Cube, "BoilerLeg", root, bc + new Vector3(-2f + i * 4f, -1.7f, -0.9f + j * 1.8f), new Vector3(0.25f, 2.2f, 0.25f), m.metal);
-        // Bantlar
-        for (int i = 0; i < 3; i++)
+        // Su kuyusu (kullanicinin modeli) + yaninda buyuk kova
+        var wellAsset = AssetDatabase.LoadAssetAtPath<GameObject>(Art + "/Models/Well/Well.glb");
+        var wellRoot = new GameObject("WaterWell");
+        wellRoot.transform.SetParent(root, false);
+        wellRoot.transform.position = c + new Vector3(5.5f, 0f, -3.2f);
+        wellRoot.transform.rotation = Quaternion.Euler(0f, 200f, 0f);
+        const float WellScale = 1.25f;
+        if (wellAsset != null)
         {
-            var band = Prim(PrimitiveType.Cylinder, "BoilerBand", root, bc + new Vector3(-2.4f + i * 2.4f, 0f, 0f), new Vector3(2.72f, 0.12f, 2.72f), m.concrete);
-            band.transform.rotation = Quaternion.Euler(0f, 0f, 90f);
+            var wm = (GameObject)PrefabUtility.InstantiatePrefab(wellAsset, wellRoot.transform);
+            wm.name = "WellModel";
+            wm.transform.localRotation = Quaternion.Euler(-90f, 0f, 0f);
+            wm.transform.localScale = Vector3.one * WellScale;
+            wm.transform.localPosition = Vector3.zero;
+            foreach (var col in wm.GetComponentsInChildren<Collider>()) Object.DestroyImmediate(col);
         }
-        // Dis borular ve musluk
-        Prim(PrimitiveType.Cylinder, "PipeDown", root, c + new Vector3(5.5f, 1.3f, -2.9f), new Vector3(0.22f, 0.9f, 0.22f), m.metal);
-        var spout = Prim(PrimitiveType.Cylinder, "Spout", root, c + new Vector3(5.5f, 0.78f, -2.5f), new Vector3(0.2f, 0.45f, 0.2f), m.metal);
-        spout.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
-        Prim(PrimitiveType.Sphere, "Valve", root, c + new Vector3(5.5f, 1.5f, -3.1f), new Vector3(0.45f, 0.45f, 0.45f), m.wood);
+        var wellCol = new GameObject("WellCollider");
+        wellCol.transform.SetParent(wellRoot.transform, false);
+        wellCol.transform.localPosition = new Vector3(0f, 0.8f, 0f);
+        var wbox = wellCol.AddComponent<BoxCollider>();
+        wbox.size = new Vector3(2.2f, 1.6f, 2.2f);
+        var wellComp = wellRoot.AddComponent<WaterWell>();
 
-        // Su hazinesi (kovalar buradan dolar)
-        var trough = new GameObject("WaterTrough").transform;
-        trough.SetParent(root, false);
-        trough.position = c + new Vector3(5.5f, 0f, -0.8f);
-        Prim(PrimitiveType.Cylinder, "TroughRim", trough, trough.position + new Vector3(0f, 0.28f, 0f), new Vector3(4.6f, 0.28f, 4.6f), m.concrete);
-        Prim(PrimitiveType.Cylinder, "TroughInner", trough, trough.position + new Vector3(0f, 0.31f, 0f), new Vector3(4.1f, 0.28f, 4.1f), m.pondRim);
-        var tw = Prim(PrimitiveType.Cylinder, "TroughWater", trough, trough.position + new Vector3(0f, 0.62f, 0f), new Vector3(3.9f, 0.05f, 3.9f), m.water, true);
-        tw.GetComponent<Collider>().isTrigger = true;
-        tw.AddComponent<WaterSource>();
-        tw.AddComponent<WaterSurface>();
+        var bigGo = (GameObject)PrefabUtility.InstantiatePrefab(bucketPrefab, root);
+        bigGo.name = "BigBucket";
+        bigGo.transform.position = c + new Vector3(2.9f, 0.62f, -1.6f);
+        bigGo.transform.localScale = Vector3.one * 3.6f;
+        var bcol = bigGo.AddComponent<CapsuleCollider>();
+        bcol.direction = 1;
+        bcol.radius = 0.34f * 0.5f * 1.05f;
+        bcol.height = 0.34f;
+        bigGo.AddComponent<WaterSource>();
+        var big = bigGo.AddComponent<BigBucket>();
+        wellComp.bucket = big;
+        // Kovanin altina tas kaide
+        Prim(PrimitiveType.Cylinder, "BigBucketBase", root, c + new Vector3(2.9f, 0.04f, -1.6f), new Vector3(1.6f, 0.08f, 1.6f), m.concrete);
 
         // Sandiklar
         Prim(PrimitiveType.Cube, "Crate1", root, c + new Vector3(-5f, 0.45f, -1f), new Vector3(1.2f, 0.9f, 1.2f), m.wood, true);
@@ -725,6 +730,44 @@ public static class VolcanoSweepersSetup
             Object.DestroyImmediate(inst);
         }
         Debug.Log("[VolcanoSweepers] Onizlemeler: " + Path.GetFullPath(outDir));
+    }
+
+    // (onizleme araci)
+    [MenuItem("VolcanoSweepers/Preview Well")]
+    public static void PreviewWell()
+    {
+        string outDir = "Library/WellPreview";
+        Directory.CreateDirectory(outDir);
+        var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+        var lightGo = new GameObject("L");
+        var l = lightGo.AddComponent<Light>();
+        l.type = LightType.Directional;
+        l.intensity = 1.3f;
+        lightGo.transform.rotation = Quaternion.Euler(40f, -35f, 0f);
+        RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
+        RenderSettings.ambientLight = new Color(0.5f, 0.5f, 0.55f);
+        var asset = AssetDatabase.LoadAssetAtPath<GameObject>(Art + "/Models/Well/Well.glb");
+        if (asset == null) { Debug.LogError("Well.glb yuklenemedi"); return; }
+        var inst = (GameObject)PrefabUtility.InstantiatePrefab(asset);
+        inst.transform.rotation = Quaternion.Euler(-90f, 0f, 0f);
+        var rends = inst.GetComponentsInChildren<Renderer>();
+        Bounds b = rends[0].bounds;
+        foreach (var r in rends) b.Encapsulate(r.bounds);
+        Debug.Log("[Well] bounds center=" + b.center + " size=" + b.size + " renderers=" + rends.Length);
+        foreach (var r in rends) Debug.Log("[Well] " + r.name + " bounds=" + r.bounds.center + " / " + r.bounds.size);
+        var camGo = new GameObject("C");
+        var cam = camGo.AddComponent<Camera>();
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0.35f, 0.4f, 0.5f);
+        cam.fieldOfView = 35f;
+        float d = b.size.magnitude * 1.4f;
+        int i = 0;
+        foreach (var dir in new[] { new Vector3(0f, 0.3f, -1f), new Vector3(1f, 0.4f, 0.3f), new Vector3(0f, 1.5f, -0.3f) })
+        {
+            camGo.transform.position = b.center + dir.normalized * d;
+            camGo.transform.LookAt(b.center);
+            Shot(cam, $"{outDir}/well_{i++}.png");
+        }
     }
 
     static void Shot(Camera cam, string path)
