@@ -40,16 +40,21 @@ public static class BucketFitTest
         foreach (var v in waterMesh.vertices)
             if (Mathf.Abs(v.z) < 1e-5f && v.x >= 0f) wr.Add(new Vector2(v.y, v.x));
         wr.Sort((a, b) => { int c = a.x.CompareTo(b.x); return c != 0 ? c : b.y.CompareTo(a.y); });   // ayni yukseklikte genis halka once
+        // Ayni yukseklikteki halkalardan genis olani tut (taban merkez noktasi koni yapmasin)
+        var wd = new List<Vector2>();
+        foreach (var v in wr)
+            if (wd.Count > 0 && Mathf.Abs(wd[wd.Count - 1].x - v.x) < 1e-5f) wd[wd.Count - 1] = new Vector2(v.x, Mathf.Max(wd[wd.Count - 1].y, v.y));
+            else wd.Add(v);
         float WaterR(float y)
         {
-            for (int i = 1; i < wr.Count; i++)
-                if (wr[i].x >= y)
+            for (int i = 1; i < wd.Count; i++)
+                if (wd[i].x >= y)
                 {
-                    float d = wr[i].x - wr[i - 1].x;
-                    float k = d > 1e-6f ? (y - wr[i - 1].x) / d : 0f;
-                    return Mathf.Lerp(wr[i - 1].y, wr[i].y, k);
+                    float d = wd[i].x - wd[i - 1].x;
+                    float k = d > 1e-6f ? (y - wd[i - 1].x) / d : 0f;
+                    return Mathf.Lerp(wd[i - 1].y, wd[i].y, k);
                 }
-            return wr[wr.Count - 1].y;
+            return wd[wd.Count - 1].y;
         }
 
         // 1) Gercek mesh uzerinde isin testi: eksenden disari atilan isin ic duvara ne kadar uzakta carpiyor?

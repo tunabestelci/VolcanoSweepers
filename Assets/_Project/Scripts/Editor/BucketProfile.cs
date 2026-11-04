@@ -57,17 +57,63 @@ public static class BucketProfile
             for (int b3 = 0; b3 < 16; b3++) if ((kv.Value & (1 << b3)) != 0) cov++;
             if (cov >= 12 && allCounts[kv.Key] >= 30) bodyTop = Mathf.Max(bodyTop, kv.Key / 500f);
         }
+        // Gercek agiz yuksekligi ve agizdaki ic yaricap: gercek mesh uzerinde isinlarla olcum
+        float rimR = -1f;
+        {
+            var mcGo = mf.gameObject;
+            var mc = mcGo.AddComponent<MeshCollider>();
+            mc.sharedMesh = mesh;
+            Physics.SyncTransforms();
+            bool prevBack = Physics.queriesHitBackfaces;
+            Physics.queriesHitBackfaces = true;
+            var tops = new List<float>();
+            for (int a = 0; a < 16; a++)
+            {
+                float ang = a / 16f * Mathf.PI * 2f;
+                float best = -1f;
+                for (float rr = 0.12f; rr <= 0.17f; rr += 0.004f)
+                {
+                    var o = root.transform.TransformPoint(new Vector3(cx + Mathf.Cos(ang) * rr, 0.4f, cz + Mathf.Sin(ang) * rr));
+                    if (Physics.Raycast(o, -root.transform.up, out var hit, 0.9f))
+                        best = Mathf.Max(best, root.transform.InverseTransformPoint(hit.point).y);
+                }
+                if (best > -1f) tops.Add(best);
+            }
+            tops.Sort();
+            if (tops.Count > 0)
+            {
+                float rimTop = tops[tops.Count / 2];       // ortanca: sap teli yalniz iki yanda
+                if (rimTop > bodyTop) bodyTop = rimTop;
+            }
+            var rs = new List<float>();
+            for (int a = 0; a < 16; a++)
+            {
+                float ang = a / 16f * Mathf.PI * 2f;
+                var o = root.transform.TransformPoint(new Vector3(cx, bodyTop - 0.006f, cz));
+                var d = root.transform.TransformDirection(new Vector3(Mathf.Cos(ang), 0f, Mathf.Sin(ang)));
+                if (Physics.Raycast(o, d, out var hit, 0.5f)) rs.Add(hit.distance);
+            }
+            rs.Sort();
+            if (rs.Count > 0) rimR = rs[rs.Count / 2];
+            Physics.queriesHitBackfaces = prevBack;
+            Object.DestroyImmediate(mc);
+        }
         var list = new List<Vector2>();
         foreach (var kv in groups)
         {
-            if (kv.Key / 500f > bodyTop + 0.003f) continue;
+            if (kv.Key / 500f > bodyTop - 0.004f) continue;     // son halka olcumle eklenecek
             // Govde halkasi her yone dolu olmali; sapin (tel) parcalari yalniz iki yanda bulunur
             int covered = 0;
             for (int b2 = 0; b2 < 16; b2++) if ((sectors[kv.Key] & (1 << b2)) != 0) covered++;
             if (counts[kv.Key] >= 3 && covered >= 8) list.Add(new Vector2(kv.Key / 500f, kv.Value));
         }
-        if (list.Count > 0 && list[list.Count - 1].x < bodyTop - 0.004f)
-            list.Add(new Vector2(bodyTop, list[list.Count - 1].y));                // agza kadar uzat
+        if (list.Count > 0)
+        {
+            // Agza kadar uzat: olculen ic yaricap, onceki halkayi gecmesin (dudak disa dogru acilmasin)
+            float prevR = list[list.Count - 1].y;
+            float topR = rimR > 0f ? Mathf.Min(rimR, prevR) : prevR;
+            list.Add(new Vector2(bodyTop - 0.004f, topR * 0.985f));
+        }
         Debug.Log($"[Bucket] govde agzi y={bodyTop:F3}, ic profil son nokta y={(list.Count > 0 ? list[list.Count - 1].x : 0f):F3}");
         return list;
     }
@@ -75,7 +121,7 @@ public static class BucketProfile
     // Su hacmi: icerideki profile %5 pay birakarak oturan bir donel mesh
     public static Mesh BuildWaterMesh(List<Vector2> inner, out float volume, out float[] levelTable, out float rimRadius, out float floorY, out float fullY)
     {
-        const float clearance = 0.97f;
+        const float clearance = 0.975f;
         const float margin = 0.002f;
         const int seg = 40;
         var prof = new List<Vector2>();
@@ -85,7 +131,7 @@ public static class BucketProfile
         floorY = prof[0].x;
         float topY = prof[prof.Count - 1].x;
         rimRadius = inner[inner.Count - 1].y;
-        fullY = topY - 0.005f;                      // su agzin hemen altinda biter (tasmaz)
+        fullY = topY - 0.004f;                      // su agzin hemen altinda biter (tasmaz)
 
         // Hacim (kesik koniler) ve seviye tablosu (doluluk -> yukseklik)
         var cum = new float[prof.Count];
