@@ -395,18 +395,22 @@ public class PlayerTools : MonoBehaviour
                 Vector3 fwd = cam.transform.forward; fwd.y = 0f; fwd = fwd.sqrMagnitude > 1e-4f ? fwd.normalized : Vector3.forward;
                 Vector3 lat = Vector3.Cross(Vector3.up, fwd);
                 float vOut = Mathf.Sqrt(2f * 9.81f * Mathf.Max(head, 0.02f)) * 1.7f + 1.4f;
-                float width = Mathf.Max(0.05f, R * 0.9f);
+                float width = Mathf.Max(0.07f, R * 1.1f);
                 for (int i = 0; i < n; i++)
                 {
-                    Vector3 spawn = lip + lat * Random.Range(-width, width) * 0.8f + Random.insideUnitSphere * 0.015f;
-                    Vector3 v = fwd * vOut + Vector3.down * 0.2f + Random.insideUnitSphere * 0.18f;
+                    // Yuvarlak, genis akis: agizdan daire kesitli, disa dogru acilan bir su demeti
+                    Vector2 d = Random.insideUnitCircle;
+                    Vector3 off = lat * d.x + Vector3.up * d.y;
+                    Vector3 spawn = lip + off * width * 0.9f;
+                    Vector3 v = fwd * vOut + Vector3.down * 0.2f + off * 0.9f + Random.insideUnitSphere * 0.12f;
                     WaterSim.Emit(spawn + v * (Time.deltaTime * Random.value), v);
                 }
                 hissTimer -= Time.deltaTime;
                 if (hissTimer <= 0f)
                 {
-                    hissTimer = 0.7f;
-                    SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.waterPour : null, lip + fwd * 1.5f, 0.8f);
+                    hissTimer = 1.1f;
+                    if (SfxPlayer.I != null)
+                        SfxPlayer.PlaySnippet(SfxPlayer.I.waterPour, lip + fwd * 1.5f, 1.8f, 0.85f);
                 }
             }
             UpdateWater(h);

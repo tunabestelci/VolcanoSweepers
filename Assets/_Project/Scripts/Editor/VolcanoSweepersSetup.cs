@@ -453,12 +453,12 @@ public static class VolcanoSweepersSetup
         }
         var sfx = sys.AddComponent<SfxPlayer>();
         // Lav sesleri: yalnizca kullanicinin verdigi "heavy bubbles" kaydi (su lava dokulunce)
-        sfx.waterPour = Clip("water_pour");
+        sfx.waterPour = AssetDatabase.LoadAssetAtPath<AudioClip>(Sfx + "water_splash.mp3");       // su dokme: water splash
         sfx.waterFill = Clip("water_fill");
         sfx.pickaxeHit = Clip("pickaxe_hit");
         sfx.obsidianBreak = Clip("obsidian_break");
         sfx.pickup = Clip("pickup");
-        sfx.lavaSizzle = AssetDatabase.LoadAssetAtPath<AudioClip>(Sfx + "heavy_bubbles.mp3");
+        sfx.lavaSizzle = AssetDatabase.LoadAssetAtPath<AudioClip>(Sfx + "water_sizzling_hot_iron.mp3");   // lav obsidyene donusurken buharlasma
 
         // Oyuncu
         var player = new GameObject("Player");
@@ -726,7 +726,7 @@ public static class VolcanoSweepersSetup
                     float wx = aorg.x + (ax + 0.5f) / ar * worldSize;
                     float wz = aorg.z + (ay + 0.5f) / ar * worldSize;
                     float pd2 = Mathf.Sqrt((wx - padX) * (wx - padX) + (wz - padZ) * (wz - padZ));
-                    float rw = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(10f, 17f, pd2));
+                    float rw = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(9.4f, 11f, pd2));
                     maps[ay, ax, 0] = 1f - rw;
                     maps[ay, ax, 1] = rw;
                 }
@@ -748,7 +748,7 @@ public static class VolcanoSweepersSetup
 
     // ---------- Ekipman istasyonu ----------
 
-    static readonly Vector3 WellOffset = new Vector3(5.5f, 0f, -3.2f);   // platform merkezine gore kuyu
+    static readonly Vector3 WellOffset = new Vector3(4.3f, 0f, -2.5f);   // platform merkezine gore kuyu
     const float WellScale = 1.25f;
 
     class WellParts { public Mesh baseOpen, wheelClean; public Vector3 axis; }
@@ -942,8 +942,8 @@ public static class VolcanoSweepersSetup
         var slab = Prim(PrimitiveType.Cube, "Slab", root, c, Vector3.one, m.rockWall);
         slab.GetComponent<MeshFilter>().sharedMesh = StripMesh(new System.Collections.Generic.List<Vector2>
         {
-            new Vector2(0.05f, 0.03f), new Vector2(7.2f, 0.03f), new Vector2(7.5f, 0.0f), new Vector2(7.9f, -0.2f),
-        }, 96, "PadSlab");
+            new Vector2(0.05f, 0.03f), new Vector2(9.3f, 0.03f), new Vector2(9.55f, 0.0f), new Vector2(9.9f, -0.25f),
+        }, 128, "PadSlab");
 
         // Su kuyusu: ustu acik, kova ip ile bagli, donderme makarasi ile iner/cikar
         Vector3 wellPos = c + WellOffset;
@@ -1083,7 +1083,7 @@ public static class VolcanoSweepersSetup
         Prim(PrimitiveType.Cube, "RackPostR", root, c + new Vector3(-1.5f, 0.6f, -5.2f), new Vector3(0.14f, 1.2f, 0.14f), m.wood);
 
         // Lamba diregi (sicak isik)
-        foreach (var off in new[] { new Vector3(-2.5f, 0f, 4.5f), new Vector3(9f, 0f, 2.5f) })
+        foreach (var off in new[] { new Vector3(-2.5f, 0f, 4.5f), new Vector3(7.2f, 0f, 2.0f) })
         {
             Prim(PrimitiveType.Cylinder, "LampPost", root, c + off + new Vector3(0f, 1.6f, 0f), new Vector3(0.12f, 1.6f, 0.12f), m.metal);
             var lampGo = new GameObject("LampLight");
