@@ -78,7 +78,7 @@ public static class VolcanoSweepersSetup
 
     class MatSet
     {
-        public Material lava, obsidian, cleared, bubble, bucket, pickaxe, core, magma, water, rock, particle, pondRim, waterDrop, lavaCrust, metal, wood, concrete, waterTrail, liquid, rockWall;
+        public Material lava, obsidian, cleared, bubble, bucket, pickaxe, core, magma, water, rock, particle, pondRim, waterDrop, lavaCrust, metal, wood, concrete, waterTrail, liquid, rockWall, oreBin;
     }
 
     static Texture2D Tex(string path) => AssetDatabase.LoadAssetAtPath<Texture2D>(path);
@@ -203,6 +203,7 @@ public static class VolcanoSweepersSetup
         m.metal = Lit("StationMetal", new Color(0.32f, 0.35f, 0.4f), smooth: 0.65f, metal: 0.85f);
         m.wood = Lit("StationWood", new Color(0.33f, 0.2f, 0.11f), smooth: 0.15f);
         m.concrete = Lit("StationConcrete", new Color(0.3f, 0.28f, 0.27f), smooth: 0.1f);
+        m.oreBin = Lit("OreBin", Color.white, T + "OreBin/OreBin_Color.png", smooth: 0.25f);
         m.rockWall = Lit("RockWall", Color.white, T + "Rock/RockWall_Color.png", T + "Rock/RockWall_Normal.png",
             T + "Rock/RockWall_MetalSmooth.png", smooth: 1f);
         m.rockWall.SetTextureScale("_BaseMap", new Vector2(0.45f, 0.45f));
@@ -889,7 +890,7 @@ public static class VolcanoSweepersSetup
             for (int i = 0; i < seg; i++)
             {
                 int a = r * (seg + 1) + i, b = (r + 1) * (seg + 1) + i;
-                tris.AddRange(new[] { a, b, a + 1, a + 1, b, b + 1 });
+                tris.AddRange(new[] { a, a + 1, b, a + 1, b + 1, b });   // saat yonu: yuzey yukari bakar
             }
         var m = new Mesh { name = name };
         m.SetVertices(verts); m.SetUVs(0, uvs); m.SetTriangles(tris, 0); m.RecalculateNormals();
@@ -937,7 +938,12 @@ public static class VolcanoSweepersSetup
         root.position = c;
 
         // Beton platform
-        Prim(PrimitiveType.Cylinder, "Slab", root, c + new Vector3(0f, -0.04f, 0f), new Vector3(15f, 0.08f, 15f), m.concrete);
+        // Platform zemini: kaya duvar dokusuyla yuvarlak, kenari yumusak egimli zemin
+        var slab = Prim(PrimitiveType.Cube, "Slab", root, c, Vector3.one, m.rockWall);
+        slab.GetComponent<MeshFilter>().sharedMesh = StripMesh(new System.Collections.Generic.List<Vector2>
+        {
+            new Vector2(0.05f, 0.03f), new Vector2(7.2f, 0.03f), new Vector2(7.5f, 0.0f), new Vector2(7.9f, -0.2f),
+        }, 96, "PadSlab");
 
         // Su kuyusu: ustu acik, kova ip ile bagli, donderme makarasi ile iner/cikar
         Vector3 wellPos = c + WellOffset;
@@ -1032,9 +1038,45 @@ public static class VolcanoSweepersSetup
         wellComp.rimY = wellPos.y + 0.86f * WellScale;
 
         // Sandiklar
-        Prim(PrimitiveType.Cube, "Crate1", root, c + new Vector3(-5f, 0.45f, -1f), new Vector3(1.2f, 0.9f, 1.2f), m.wood, true);
-        Prim(PrimitiveType.Cube, "Crate2", root, c + new Vector3(-6.4f, 0.45f, -1.4f), new Vector3(1.2f, 0.9f, 1.2f), m.wood, true).transform.rotation = Quaternion.Euler(0f, 18f, 0f);
-        Prim(PrimitiveType.Cube, "Crate3", root, c + new Vector3(-5.5f, 1.35f, -1.1f), new Vector3(1.0f, 0.9f, 1.0f), m.wood, true).transform.rotation = Quaternion.Euler(0f, -12f, 0f);
+        // Cevher deposu (tek, yatay genis, 500 cevher kapasiteli)
+        {
+            Vector3 binPos = c + new Vector3(-5.2f, 0.03f, -1.6f);
+            Vector3 toC = c - binPos; toC.y = 0f;
+            var binRoot = new GameObject("OreBin");
+            binRoot.transform.SetParent(root, false);
+            binRoot.transform.position = binPos;
+            binRoot.transform.rotation = Quaternion.LookRotation(toC.normalized);
+            var binAsset = AssetDatabase.LoadAssetAtPath<GameObject>(Art + "/Models/OreBin/OreBin.obj");
+            float sH = 1.15f / 34.3629f;                       // yukseklik ~1.15 m
+            float sW = sH * 2.1f, sD = sH * 1.1f;              // eninde yatay uzatilmis
+            if (binAsset != null)
+            {
+                var bm = (GameObject)PrefabUtility.InstantiatePrefab(binAsset, binRoot.transform);
+                bm.name = "OreBinModel";
+                PrefabUtility.UnpackPrefabInstance(bm, PrefabUnpackMode.Completely, InteractionMode.AutomatedAction);
+                bm.transform.localPosition = Vector3.zero;
+                bm.transform.localRotation = Quaternion.identity;
+                bm.transform.localScale = new Vector3(sW, sH, sD);
+                foreach (var col in bm.GetComponentsInChildren<Collider>()) Object.DestroyImmediate(col);
+                foreach (var r in bm.GetComponentsInChildren<MeshRenderer>()) r.sharedMaterial = m.oreBin;
+            }
+            float wMeters = 62.7338f * sW, dMeters = 42.2738f * sD, hMeters = 34.3629f * sH;
+            var bcol = binRoot.AddComponent<BoxCollider>();
+            bcol.center = new Vector3(0f, hMeters * 0.5f, 0f);
+            bcol.size = new Vector3(wMeters, hMeters, dMeters);
+            var pileGo = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            pileGo.name = "OrePile";
+            Object.DestroyImmediate(pileGo.GetComponent<Collider>());
+            pileGo.transform.SetParent(binRoot.transform, false);
+            pileGo.GetComponent<MeshRenderer>().sharedMaterial = m.obsidian;
+            var bin = binRoot.AddComponent<OreBin>();
+            bin.capacity = 500;
+            bin.hitCollider = bcol;
+            bin.pile = pileGo.transform;
+            bin.pileFullSize = new Vector3(wMeters * 0.86f, hMeters * 0.72f, dMeters * 0.8f);
+            bin.pileBaseLocal = new Vector3(0f, 0.06f, 0f);
+            pileGo.SetActive(false);
+        }
         // Alet rafi
         Prim(PrimitiveType.Cube, "RackBeam", root, c + new Vector3(-3f, 1.2f, -5.2f), new Vector3(3.2f, 0.12f, 0.12f), m.wood);
         Prim(PrimitiveType.Cube, "RackPostL", root, c + new Vector3(-4.5f, 0.6f, -5.2f), new Vector3(0.14f, 1.2f, 0.14f), m.wood);

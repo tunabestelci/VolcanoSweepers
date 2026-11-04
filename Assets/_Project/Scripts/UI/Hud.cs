@@ -34,6 +34,9 @@ public class Hud : MonoBehaviour
         GUI.color = Color.white;
         GUI.Label(new Rect(pad, pad + h * 0.075f, w * 0.5f, h * 0.05f), $"Kovadaki cevher: {tools.CoreCount}/{tools.CoreCapacity}  (kova basi {PlayerTools.OresPerBucket})", label);
 
+        if (OreBin.I != null)
+            GUI.Label(new Rect(pad, pad + h * 0.1f, w * 0.5f, h * 0.05f), $"Cevher deposu: {OreBin.I.Count}/{OreBin.I.capacity}", label);
+
         // Ipucu
         if (!string.IsNullOrEmpty(tools.Hint))
             GUI.Label(new Rect(0f, h * 0.62f, w, h * 0.06f), tools.Hint, big);

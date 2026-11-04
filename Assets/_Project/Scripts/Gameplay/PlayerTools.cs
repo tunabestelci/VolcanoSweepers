@@ -487,6 +487,28 @@ public class PlayerTools : MonoBehaviour
         if (core == null)
         {
             var eRay = new Ray(cam.transform.position, cam.transform.forward);
+            if (OreBin.I != null && OreBin.I.LooksAt(eRay, reach + 1f))
+            {
+                int have = CoreCount;
+                if (have == 0) { SetHint($"Depo: {OreBin.I.Count}/{OreBin.I.capacity} (kovalarda cevher yok)"); return; }
+                if (OreBin.I.Count >= OreBin.I.capacity) { SetHint("Depo dolu (500/500)"); return; }
+                int moved = 0;
+                foreach (var h in new[] { left, right })
+                {
+                    if (h.ores <= 0) continue;
+                    int took = OreBin.I.Deposit(h.ores);
+                    h.ores -= took; moved += took;
+                    if (h.item != null)
+                    {
+                        var old = h.item.transform.Find("Ores");
+                        if (old != null) Destroy(old.gameObject);
+                        BuildOreViews(h);
+                    }
+                }
+                SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.pickup : null, OreBin.I.transform.position, 0.9f, 0.8f);
+                SetHint($"{moved} cevher depoya bosaltildi ({OreBin.I.Count}/{OreBin.I.capacity})");
+                return;
+            }
             foreach (var well in WaterWell.All)
                 if (well != null && well.LooksAt(eRay.origin, eRay.direction, reach + 1f)) { SetHint(well.Pull()); return; }
             if (Raycast(out var wh))
@@ -494,7 +516,7 @@ public class PlayerTools : MonoBehaviour
                 var well2 = wh.collider.GetComponentInParent<WaterWell>();
                 if (well2 != null) { SetHint(well2.Pull()); return; }
             }
-            SetHint("Yakinda cekirdek yok (kuyuya bakip E: su cek)");
+            SetHint("Yakinda cevher yok (kuyuya bakip E: su cek, depoya bakip E: cevher bosalt)");
             return;
         }
         // Cevher kovaya girer: once yarisi dolu kova, sonra bos kova (kovada su varsa girmez)
