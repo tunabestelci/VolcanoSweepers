@@ -79,7 +79,14 @@ Shader "VolcanoSweepers/LavaCrust"
             float HeightAtUV(float2 uv)
             {
                 float4 m = SAMPLE_TEXTURE2D_LOD(_Mask, sampler_Mask, uv, 0);
-                return -m.g * _DigDepth + CrustShape(m.r) * _CrustHeight;
+                float cs = CrustShape(m.r);
+                // Akan lav: genis, yavas dalgalar (kabuklu yerde ve kazilmis cukurda sakin)
+                float2 mt = uv * _FieldSize;
+                float w = sin(mt.x * 0.55 + _Time.y * 0.8) * sin(mt.y * 0.43 - _Time.y * 0.6) * 0.05
+                        + sin(mt.x * 0.21 - mt.y * 0.33 + _Time.y * 0.5) * 0.07
+                        + sin(mt.x * 1.3 + mt.y * 0.9 + _Time.y * 1.7) * 0.015;
+                w *= (1.0 - cs) * (1.0 - smoothstep(0.85, 0.97, m.g));
+                return -m.g * _DigDepth + cs * _CrustHeight + w;
             }
 
             Varyings vert(Attributes IN)
@@ -114,10 +121,16 @@ Shader "VolcanoSweepers/LavaCrust"
                 // Lav: iki katman, ters yonde akar
                 float t = _Time.y * _FlowSpeed;
                 float2 luv = meters / _LavaTiling;
-                float3 lava1 = SAMPLE_TEXTURE2D(_LavaMap, sampler_LavaMap, luv + float2(t, t * 0.6)).rgb;
-                float3 lava2 = SAMPLE_TEXTURE2D(_LavaMap, sampler_LavaMap, luv * 0.63 + float2(-t * 0.7, t)).rgb;
-                float3 lava = lerp(lava1, lava2, 0.5);
-                lava = saturate(lava * lava * 1.4);
+                // Akiskan lav: dokular birbirine gore kayar ve dusuk frekansli bir gurultuyle buruslur
+                float2 warp1 = (SAMPLE_TEXTURE2D(_LavaMap, sampler_LavaMap, luv * 0.31 + float2(t * 0.5, -t * 0.35)).rg - 0.5) * 0.55;
+                float2 warp2 = (SAMPLE_TEXTURE2D(_LavaMap, sampler_LavaMap, luv * 0.47 + float2(-t * 0.4, t * 0.55)).gb - 0.5) * 0.4;
+                float3 lava1 = SAMPLE_TEXTURE2D(_LavaMap, sampler_LavaMap, luv + warp1 + float2(t, t * 0.6)).rgb;
+                float3 lava2 = SAMPLE_TEXTURE2D(_LavaMap, sampler_LavaMap, luv * 0.63 + warp2 + float2(-t * 0.7, t)).rgb;
+                float3 lava3 = SAMPLE_TEXTURE2D(_LavaMap, sampler_LavaMap, luv * 1.9 + warp1 + warp2 + float2(t * 0.6, -t * 1.1)).rgb;
+                float3 lava = lava1 * 0.38 + lava2 * 0.38 + lava3 * 0.24;
+                // Genis olcekli parlaklik degisimi: tekrar eden izgara gorunmesin
+                float big = SAMPLE_TEXTURE2D(_LavaMap, sampler_LavaMap, meters * 0.011 + float2(t * 0.15, t * 0.1)).r;
+                lava = saturate(lava * lava * 1.4 * (0.75 + 0.55 * big));
 
                 // Kabuk: gurultuyle duzensiz kenar
                 float noise = SAMPLE_TEXTURE2D(_LavaMap, sampler_LavaMap, meters / 1.7).r;

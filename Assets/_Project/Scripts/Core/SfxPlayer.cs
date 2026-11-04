@@ -12,6 +12,7 @@ public class SfxPlayer : MonoBehaviour
     public AudioClip obsidianBreak;
     public AudioClip pickup;
     public AudioClip lavaAmbient;
+    public AudioClip lavaSizzle;      // su lava dusunce (kaynayan balcik/lav sesi)
 
     void Awake()
     {
@@ -39,5 +40,39 @@ public class SfxPlayer : MonoBehaviour
         src.maxDistance = 35f;
         src.Play();
         Destroy(go, clip.length / Mathf.Max(0.1f, src.pitch) + 0.1f);
+    }
+
+    // Uzun bir kayittan rastgele bir parca cal; yumusak girip cikar (parcalar ust uste binince surekli ses olur)
+    public static void PlaySnippet(AudioClip clip, Vector3 pos, float duration, float volume)
+    {
+        if (clip == null) return;
+        duration = Mathf.Min(duration, clip.length);
+        var go = new GameObject("Snippet_" + clip.name);
+        go.transform.position = pos;
+        var src = go.AddComponent<AudioSource>();
+        src.clip = clip;
+        src.spatialBlend = 1f;
+        src.minDistance = 3f;
+        src.maxDistance = 45f;
+        src.volume = 0f;
+        src.time = Random.Range(0f, Mathf.Max(0f, clip.length - duration));
+        src.Play();
+        var f = go.AddComponent<SnippetFade>();
+        f.src = src; f.duration = duration; f.volume = volume;
+    }
+}
+
+public class SnippetFade : MonoBehaviour
+{
+    public AudioSource src;
+    public float duration, volume;
+    float t;
+
+    void Update()
+    {
+        t += Time.deltaTime;
+        float fade = Mathf.Min(1f, t / 0.25f) * Mathf.Min(1f, (duration - t) / 0.4f);
+        src.volume = volume * Mathf.Clamp01(fade);
+        if (t >= duration) Destroy(gameObject);
     }
 }

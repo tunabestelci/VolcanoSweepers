@@ -27,6 +27,7 @@ public static class BucketProfile
         float cx = b.center.x, cz = b.center.z;
         var groups = new SortedDictionary<int, float>();
         var counts = new Dictionary<int, int>();
+        var sectors = new Dictionary<int, int>();
         for (int i = 0; i < pts.Length; i++)
         {
             Vector3 radial = new Vector3(pts[i].x - cx, 0f, pts[i].z - cz);
@@ -35,10 +36,17 @@ public static class BucketProfile
             int key = Mathf.RoundToInt(pts[i].y * 500f);                           // 2 mm
             if (!groups.TryGetValue(key, out float cur) || r < cur) groups[key] = r;
             counts[key] = counts.TryGetValue(key, out int c) ? c + 1 : 1;
+            int sector = Mathf.Clamp((int)((Mathf.Atan2(radial.z, radial.x) + Mathf.PI) / (2f * Mathf.PI) * 16f), 0, 15);
+            sectors[key] = (sectors.TryGetValue(key, out int sm) ? sm : 0) | (1 << sector);
         }
         var list = new List<Vector2>();
         foreach (var kv in groups)
-            if (counts[kv.Key] >= 3) list.Add(new Vector2(kv.Key / 500f, kv.Value));
+        {
+            // Govde halkasi her yone dolu olmali; sapin (tel) parcalari yalniz iki yanda bulunur
+            int covered = 0;
+            for (int b2 = 0; b2 < 16; b2++) if ((sectors[kv.Key] & (1 << b2)) != 0) covered++;
+            if (counts[kv.Key] >= 3 && covered >= 12) list.Add(new Vector2(kv.Key / 500f, kv.Value));
+        }
         return list;
     }
 
@@ -55,7 +63,7 @@ public static class BucketProfile
         floorY = prof[0].x;
         float topY = prof[prof.Count - 1].x;
         rimRadius = inner[inner.Count - 1].y;
-        fullY = topY - 0.004f;
+        fullY = topY - 0.008f;                      // su agzin hemen altinda biter (tasmaz)
 
         // Hacim (kesik koniler) ve seviye tablosu (doluluk -> yukseklik)
         var cum = new float[prof.Count];
@@ -86,7 +94,6 @@ public static class BucketProfile
         // Mesh: taban merkezi + halkalar + yuzey kesmesi icin ustte uzanti
         var rings = new List<Vector2> { new Vector2(floorY, 0f) };
         rings.AddRange(prof);
-        rings.Add(new Vector2(topY + 0.06f, prof[prof.Count - 1].y));
         var verts = new List<Vector3>();
         var uvs = new List<Vector2>();
         var tris = new List<int>();

@@ -227,6 +227,7 @@ public static class VolcanoSweepersSetup
         }
         lc.shader = Shader.Find("VolcanoSweepers/LavaCrust");
         lc.SetTexture("_LavaMap", Tex(T + "MagmaBall/Lava_Tile.png"));
+        lc.SetFloat("_FlowSpeed", 0.03f);
         lc.SetTexture("_ObsMap", Tex(T + "ObsidianTile/Obsidian_basecolor.png"));
         lc.SetTexture("_ObsNormal", Tex(T + "ObsidianTile/Obsidian_normal.png"));
         lc.SetTexture("_ObsMS", Tex(T + "ObsidianTile/Obsidian_MetalSmooth.png"));
@@ -450,6 +451,7 @@ public static class VolcanoSweepersSetup
         sfx.obsidianBreak = Clip("obsidian_break");
         sfx.pickup = Clip("pickup");
         sfx.lavaAmbient = Clip("lava_ambient");
+        sfx.lavaSizzle = AssetDatabase.LoadAssetAtPath<AudioClip>(Sfx + "hot_bubbling_mud.mp3");
 
         // Oyuncu
         var player = new GameObject("Player");

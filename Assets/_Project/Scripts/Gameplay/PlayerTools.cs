@@ -224,6 +224,17 @@ public class PlayerTools : MonoBehaviour
         source = null;
         point = Vector3.zero;
         var ray = new Ray(cam.transform.position, cam.transform.forward);
+        // Su kaynagi (kuyu kovasi): isin-kure testi
+        WaterSource bestWs = null; float bestT = float.MaxValue;
+        foreach (var ws in WaterSource.All)
+            if (ws != null && ws.Hit(ray.origin, ray.direction, reach, out float wt) && wt < bestT) { bestT = wt; bestWs = ws; }
+        if (bestWs != null)
+        {
+            isWater = true;
+            source = bestWs;
+            point = ray.origin + ray.direction * Mathf.Max(0f, bestT - bestWs.PickRadius * 0.4f);
+            return true;
+        }
         bool physHit = Raycast(out var hit);
         if (physHit)
         {
@@ -447,10 +458,13 @@ public class PlayerTools : MonoBehaviour
         var core = LithicCoreItem.Nearest(transform.position, pickupRange);
         if (core == null)
         {
+            var eRay = new Ray(cam.transform.position, cam.transform.forward);
+            foreach (var well in WaterWell.All)
+                if (well != null && well.LooksAt(eRay.origin, eRay.direction, reach + 1f)) { SetHint(well.Pull()); return; }
             if (Raycast(out var wh))
             {
-                var well = wh.collider.GetComponentInParent<WaterWell>();
-                if (well != null) { SetHint(well.Pull()); return; }
+                var well2 = wh.collider.GetComponentInParent<WaterWell>();
+                if (well2 != null) { SetHint(well2.Pull()); return; }
             }
             SetHint("Yakinda cekirdek yok (kuyuya bakip E: su cek)");
             return;

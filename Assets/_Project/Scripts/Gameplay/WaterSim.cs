@@ -69,6 +69,7 @@ public class WaterSim : MonoBehaviour
     float accumulator;
     uint frame;
     float steamCooldown;
+    float sizzleCooldown;
 
     readonly List<BigBucket> containers = new List<BigBucket>();
     Matrix4x4[] batch = new Matrix4x4[1023];
@@ -320,6 +321,11 @@ public class WaterSim : MonoBehaviour
                     if (UnityEngine.Random.value < 0.03f) Fx.Splash(p);
                     break;
             }
+        }
+        if (lavaHits >= 2 && Time.time >= sizzleCooldown && SfxPlayer.I != null)
+        {
+            SfxPlayer.PlaySnippet(SfxPlayer.I.lavaSizzle, lavaSum / lavaHits, 1.8f, Mathf.Clamp(0.25f + 0.04f * lavaHits, 0.25f, 0.9f));
+            sizzleCooldown = Time.time + 0.7f;
         }
         if (lavaHits >= 3 && Time.time >= steamCooldown)
         {

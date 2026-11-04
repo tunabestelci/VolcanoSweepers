@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 
 // Suyun kovaya tam oturdugunu (ic duvardan tasmadigini) olcer ve kesit goruntuleri alir.
@@ -11,6 +12,15 @@ public static class BucketFitTest
     public static void RunBatch()
     {
         VolcanoSweepersSetup.BuildAll();
+        Run();
+        EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);   // test nesnelerini at
+        BrimView.Run();
+        EditorApplication.Exit(0);
+    }
+
+    public static void RunViewOnly()
+    {
+        EditorSceneManager.OpenScene("Assets/_Project/Scenes/Volcano.unity", OpenSceneMode.Single);
         Run();
         EditorApplication.Exit(0);
     }
@@ -178,6 +188,39 @@ public static class BucketFitTest
             RenderTexture.active = null;
             Object.DestroyImmediate(rt);
             Object.DestroyImmediate(tex);
+        }
+        // Gercek materyallerle, ustten 3/4 gorunum: dolu kovanin agzinda tasma/kubbe var mi?
+        {
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/_Project/Prefabs/Bucket.prefab");
+            var real = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
+            real.transform.position = new Vector3(0f, 0f, 0f);
+            real.transform.localScale = Vector3.one * 2.289f;
+            var rbw = real.GetComponentInChildren<BucketWater>(true);
+            rbw.gameObject.SetActive(true);
+            real.transform.Find("WaterBody").gameObject.SetActive(true);   // editor modunda OnEnable calismaz
+            inst.SetActive(false);
+            cam.orthographic = false;
+            cam.fieldOfView = 35f;
+            foreach (float f in new[] { 1f, 0.5f })
+            {
+                rbw.SetFill(f);
+                rbw.Refresh();
+                cam.transform.position = new Vector3(0f, 1.0f, -1.9f);
+                cam.transform.LookAt(new Vector3(0f, 0.15f, 0f));
+                var rt = new RenderTexture(768, 512, 24);
+                cam.targetTexture = rt;
+                cam.Render();
+                RenderTexture.active = rt;
+                var tex = new Texture2D(768, 512, TextureFormat.RGB24, false);
+                tex.ReadPixels(new Rect(0, 0, 768, 512), 0, 0);
+                tex.Apply();
+                File.WriteAllBytes($"{dir}/perspective_f{(int)(f * 100)}.png", tex.EncodeToPNG());
+                cam.targetTexture = null;
+                RenderTexture.active = null;
+                Object.DestroyImmediate(rt);
+                Object.DestroyImmediate(tex);
+            }
+            Object.DestroyImmediate(real);
         }
         Debug.Log("[FitTest] kesit goruntuleri: " + Path.GetFullPath(dir));
     }

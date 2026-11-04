@@ -5,6 +5,19 @@ using UnityEngine;
 // Kova dik ve sabit kalir (devrilmez); elimizdeki kovalar dogrudan ondan doldurulur.
 public class WaterWell : MonoBehaviour
 {
+    public static readonly System.Collections.Generic.List<WaterWell> All = new System.Collections.Generic.List<WaterWell>();
+    void OnEnable() { All.Add(this); }
+    void OnDisable() { All.Remove(this); }
+
+    // Isin kuyuya bakiyor mu (fizik colliderindan bagimsiz)
+    public bool LooksAt(Vector3 origin, Vector3 dir, float maxDist)
+    {
+        Vector3 c = transform.position + Vector3.up * 1.0f;
+        float t = Vector3.Dot(c - origin, dir);
+        if (t < 0f || t > maxDist) return false;
+        return (origin + dir * t - c).magnitude <= 1.25f;
+    }
+
     public Transform wheelPivot;     // donen makara + cark
     public Transform bucket;         // kuyu kovasi
     public BigBucket bucketFill;     // kuyu kovasinin su durumu (WaterSource ile ayni nesne)

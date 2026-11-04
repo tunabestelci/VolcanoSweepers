@@ -49,7 +49,7 @@ Material:
     - _DigDepth: 3
     - _EmissionStrength: 1.3
     - _FieldSize: 20
-    - _FlowSpeed: 0.015
+    - _FlowSpeed: 0.03
     - _LavaTiling: 3.5
     - _ObsTiling: 2.5
     - _PoolRadius: 9
