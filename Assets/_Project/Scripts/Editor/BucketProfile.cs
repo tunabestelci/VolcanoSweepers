@@ -28,33 +28,55 @@ public static class BucketProfile
         var groups = new SortedDictionary<int, float>();
         var counts = new Dictionary<int, int>();
         var sectors = new Dictionary<int, int>();
+        var allSectors = new Dictionary<int, int>();
+        var allCounts = new Dictionary<int, int>();
         for (int i = 0; i < pts.Length; i++)
         {
             Vector3 radial = new Vector3(pts[i].x - cx, 0f, pts[i].z - cz);
             float r = radial.magnitude;
-            if (r < 1e-4f || Vector3.Dot(nrm[i], radial / r) > -0.3f) continue;   // yalniz ice bakan yuzler
+            if (r < 1e-4f) continue;
+            // Govde halkasi (ic veya dis yuz): kovanin gercek agzini bulmak icin
+            {
+                int ak = Mathf.RoundToInt(pts[i].y * 500f);
+                int asec = Mathf.Clamp((int)((Mathf.Atan2(radial.z, radial.x) + Mathf.PI) / (2f * Mathf.PI) * 16f), 0, 15);
+                allSectors[ak] = (allSectors.TryGetValue(ak, out int am) ? am : 0) | (1 << asec);
+                allCounts[ak] = allCounts.TryGetValue(ak, out int ac) ? ac + 1 : 1;
+            }
+            if (Vector3.Dot(nrm[i], radial / r) > -0.3f) continue;   // yalniz ice bakan yuzler
             int key = Mathf.RoundToInt(pts[i].y * 500f);                           // 2 mm
             if (!groups.TryGetValue(key, out float cur) || r < cur) groups[key] = r;
             counts[key] = counts.TryGetValue(key, out int c) ? c + 1 : 1;
             int sector = Mathf.Clamp((int)((Mathf.Atan2(radial.z, radial.x) + Mathf.PI) / (2f * Mathf.PI) * 16f), 0, 15);
             sectors[key] = (sectors.TryGetValue(key, out int sm) ? sm : 0) | (1 << sector);
         }
+        // Kovanin gercek agzi: her yone dolu en ust halka (sap teli yalniz iki yanda oldugu icin sayilmaz)
+        float bodyTop = float.MinValue;
+        foreach (var kv in allSectors)
+        {
+            int cov = 0;
+            for (int b3 = 0; b3 < 16; b3++) if ((kv.Value & (1 << b3)) != 0) cov++;
+            if (cov >= 12 && allCounts[kv.Key] >= 30) bodyTop = Mathf.Max(bodyTop, kv.Key / 500f);
+        }
         var list = new List<Vector2>();
         foreach (var kv in groups)
         {
+            if (kv.Key / 500f > bodyTop + 0.003f) continue;
             // Govde halkasi her yone dolu olmali; sapin (tel) parcalari yalniz iki yanda bulunur
             int covered = 0;
             for (int b2 = 0; b2 < 16; b2++) if ((sectors[kv.Key] & (1 << b2)) != 0) covered++;
-            if (counts[kv.Key] >= 3 && covered >= 12) list.Add(new Vector2(kv.Key / 500f, kv.Value));
+            if (counts[kv.Key] >= 3 && covered >= 8) list.Add(new Vector2(kv.Key / 500f, kv.Value));
         }
+        if (list.Count > 0 && list[list.Count - 1].x < bodyTop - 0.004f)
+            list.Add(new Vector2(bodyTop, list[list.Count - 1].y));                // agza kadar uzat
+        Debug.Log($"[Bucket] govde agzi y={bodyTop:F3}, ic profil son nokta y={(list.Count > 0 ? list[list.Count - 1].x : 0f):F3}");
         return list;
     }
 
     // Su hacmi: icerideki profile %5 pay birakarak oturan bir donel mesh
     public static Mesh BuildWaterMesh(List<Vector2> inner, out float volume, out float[] levelTable, out float rimRadius, out float floorY, out float fullY)
     {
-        const float clearance = 0.93f;
-        const float margin = 0.004f;
+        const float clearance = 0.97f;
+        const float margin = 0.002f;
         const int seg = 40;
         var prof = new List<Vector2>();
         foreach (var p in inner) prof.Add(new Vector2(p.x, Mathf.Max(0.005f, p.y * clearance - margin)));
@@ -63,7 +85,7 @@ public static class BucketProfile
         floorY = prof[0].x;
         float topY = prof[prof.Count - 1].x;
         rimRadius = inner[inner.Count - 1].y;
-        fullY = topY - 0.008f;                      // su agzin hemen altinda biter (tasmaz)
+        fullY = topY - 0.005f;                      // su agzin hemen altinda biter (tasmaz)
 
         // Hacim (kesik koniler) ve seviye tablosu (doluluk -> yukseklik)
         var cum = new float[prof.Count];
