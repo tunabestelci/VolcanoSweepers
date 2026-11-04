@@ -410,11 +410,11 @@ public static class VolcanoSweepersSetup
         lavaGo.AddComponent<MeshRenderer>();
         var field = lavaGo.AddComponent<LavaField>();
         field.material = m.lavaCrust;
-        field.size = 116f;
-        field.res = 512;
-        field.meshRes = 384;
-        field.poolRadius = LakeRadius + 5f;
-        field.digDepth = LavaAboveFloor - 1f;
+        field.size = basinSize;
+        field.res = LavaRes;
+        field.meshRes = 512;
+        field.digDepth = 12f;
+        field.basinData = basinAsset;
 
         var glowGo = new GameObject("LavaGlow");
         glowGo.transform.position = new Vector3(0f, 3f, 0f);
@@ -454,7 +454,8 @@ public static class VolcanoSweepersSetup
         // Oyuncu
         var player = new GameObject("Player");
         player.tag = "Player";
-        player.transform.position = pad + new Vector3(0f, 0.05f, 3f);
+        player.transform.position = pad + new Vector3(0f, 0.05f, 0f);
+        player.transform.rotation = Quaternion.Euler(0f, padYaw, 0f);
         var cc = player.AddComponent<CharacterController>();
         cc.height = 1.8f;
         cc.radius = 0.35f;
@@ -527,11 +528,15 @@ public static class VolcanoSweepersSetup
     // ---------- Arazi ----------
 
     const string TerrainDir = Art + "/Terrain";
-    public const float LakeRadius = 50f;       // lav golunun ici (arazi bunun disinda yukselir)
-    public const float LavaAboveFloor = 13f;   // lav seviyesi krater tabanindan ne kadar yuksek
+    const int LavaRes = 1024;
+    static float basinSize = 200f;     // lav alaninin kare kenari (m)
+    static TextAsset basinAsset;       // lav golunun maskesi
+    static float padYaw;               // oyuncunun gole bakan yonu (derece)
 
-    // Kullanicinin yukseklik haritasindan arazi kurar; krater lavla dolacak sekilde dunya y=0 lav seviyesidir.
-    // Donus: dagin icinde, kraterin disindaki duz istasyon platformunun merkezi.
+    // Kullanicinin yukseklik haritasindan arazi kurar. Krater AGZINA KADAR lavla doludur:
+    // lav seviyesi kraterin en alcak kenarinin (tasma noktasi) 0.6 m altidir ve dunya y=0'dir.
+    // Istasyon platformu tam bu tasma noktasinda, dagin tepesinde, gole bakan kenardadir.
+    // Donus: platformun merkezi.
     static Vector3 BuildTerrain(MatSet m, Transform parent)
     {
         // RAW: 1009x1009, 16 bit, little-endian
@@ -548,14 +553,94 @@ public static class VolcanoSweepersSetup
 
         const int res = 1025;
         const float worldSize = 448f;
-        float heightRange = max * 270f;                 // krater kenari ~35 m yuksekte
+        float heightRange = max * 270f;
         const float cxPx = 540f, cyPx = 520f;           // krater merkezi (resim koordinati, ustten)
-        float cyT = (src - 1) - cyPx;                   // arazide (alttan) satir; doku ile hizali olsun diye satirlar cevrilir
-        float floorH = h[(int)cyPx * src + (int)cxPx];
-        float levelNorm = floorH + LavaAboveFloor / heightRange;   // lav seviyesi
-        float padH = levelNorm + 1.5f / heightRange;               // platform yuksekligi
-        float padDist = LakeRadius + 12f;                          // platform merkezi (guneyde, -Z)
+        float cyT = (src - 1) - cyPx;
         float mPerPx = worldSize / (src - 1);
+
+        // 1) Kraterin en alcak kenari (tasma noktasi)
+        float minCrest = float.MaxValue;
+        int sadX = 0, sadY = 0;
+        for (int ang = 0; ang < 360; ang += 2)
+        {
+            float t = ang * Mathf.Deg2Rad;
+            float best = 0f; int bx = 0, by = 0;
+            for (int r = 20; r < 330; r++)
+            {
+                int xi = Mathf.RoundToInt(cxPx + r * Mathf.Cos(t)), yi = Mathf.RoundToInt(cyPx + r * Mathf.Sin(t));
+                if (xi < 0 || yi < 0 || xi >= src || yi >= src) break;
+                float v = h[yi * src + xi];
+                if (v > best) { best = v; bx = xi; by = yi; }
+            }
+            if (best < minCrest) { minCrest = best; sadX = bx; sadY = by; }
+        }
+        float levelNorm = minCrest - 0.6f / heightRange;            // lav seviyesi (agzin 0.6 m altinda)
+        float padH = levelNorm + 1.5f / heightRange;                // platform yuksekligi
+        float padX = (sadX - cxPx) * mPerPx, padZ = (cyPx - sadY) * mPerPx;
+        padYaw = Mathf.Atan2(-padX, -padZ) * Mathf.Rad2Deg;
+        Debug.Log($"[Terrain] tasma noktasi: {minCrest * heightRange:F1} m, lav seviyesi {levelNorm * heightRange:F1} m, platform ({padX:F1}, {padZ:F1}), kratere {Mathf.Sqrt(padX * padX + padZ * padZ):F0} m");
+
+        // 2) Lav golu: merkezden baglantili, lav seviyesinin altindaki hucreler
+        float SampleH(float wx, float wz)
+        {
+            float fx = wx / mPerPx + cxPx, fr = cyPx - wz / mPerPx;
+            fx = Mathf.Clamp(fx, 0f, src - 1.001f); fr = Mathf.Clamp(fr, 0f, src - 1.001f);
+            int x0 = (int)fx, y0 = (int)fr;
+            float tx = fx - x0, ty = fr - y0;
+            return Mathf.Lerp(
+                Mathf.Lerp(h[y0 * src + x0], h[y0 * src + x0 + 1], tx),
+                Mathf.Lerp(h[(y0 + 1) * src + x0], h[(y0 + 1) * src + x0 + 1], tx), ty);
+        }
+        // Once yaricap: heightmap cozunurlugunde tasma
+        float maxDist = 0f;
+        {
+            var seen = new bool[src * src];
+            var q = new System.Collections.Generic.Queue<int>();
+            int start = (int)cyPx * src + (int)cxPx;
+            seen[start] = true; q.Enqueue(start);
+            while (q.Count > 0)
+            {
+                int c = q.Dequeue();
+                int cy = c / src, cx = c % src;
+                float dd = Mathf.Sqrt((cx - cxPx) * (cx - cxPx) + (cy - cyPx) * (cy - cyPx)) * mPerPx;
+                if (dd > maxDist) maxDist = dd;
+                for (int k = 0; k < 4; k++)
+                {
+                    int nx = cx + (k == 0 ? 1 : k == 1 ? -1 : 0), ny = cy + (k == 2 ? 1 : k == 3 ? -1 : 0);
+                    if (nx < 0 || ny < 0 || nx >= src || ny >= src) continue;
+                    int ni = ny * src + nx;
+                    if (seen[ni] || h[ni] >= levelNorm) continue;
+                    seen[ni] = true; q.Enqueue(ni);
+                }
+            }
+        }
+        basinSize = Mathf.Ceil((maxDist + 8f) * 2f / 2f) * 2f;
+        var basin = new byte[LavaRes * LavaRes];
+        {
+            var q = new System.Collections.Generic.Queue<int>();
+            int c0 = (LavaRes / 2) * LavaRes + LavaRes / 2;
+            basin[c0] = 255; q.Enqueue(c0);
+            int count = 0;
+            while (q.Count > 0)
+            {
+                int c = q.Dequeue(); count++;
+                int cy = c / LavaRes, cx = c % LavaRes;
+                for (int k = 0; k < 4; k++)
+                {
+                    int nx = cx + (k == 0 ? 1 : k == 1 ? -1 : 0), ny = cy + (k == 2 ? 1 : k == 3 ? -1 : 0);
+                    if (nx < 0 || ny < 0 || nx >= LavaRes || ny >= LavaRes) continue;
+                    int ni = ny * LavaRes + nx;
+                    if (basin[ni] != 0) continue;
+                    float wx = (nx / (LavaRes - 1f) - 0.5f) * basinSize, wz = (ny / (LavaRes - 1f) - 0.5f) * basinSize;
+                    if (SampleH(wx, wz) >= levelNorm) continue;
+                    basin[ni] = 255; q.Enqueue(ni);
+                }
+            }
+            Debug.Log($"[Terrain] lav golu: kare {basinSize:F0} m, {count} hucre, yaklasik {count * (basinSize / LavaRes) * (basinSize / LavaRes):F0} m2, en uzak nokta {maxDist:F0} m");
+        }
+        File.WriteAllBytes(TerrainDir + "/LavaBasin.bytes", basin);
+        AssetDatabase.ImportAsset(TerrainDir + "/LavaBasin.bytes", ImportAssetOptions.ForceUpdate);
+        basinAsset = AssetDatabase.LoadAssetAtPath<TextAsset>(TerrainDir + "/LavaBasin.bytes");
 
         var data = new float[res, res];
         for (int y = 0; y < res; y++)
@@ -569,15 +654,9 @@ public static class VolcanoSweepersSetup
                     Mathf.Lerp(h[y0 * src + x0], h[y0 * src + x0 + 1], tx),
                     Mathf.Lerp(h[(y0 + 1) * src + x0], h[(y0 + 1) * src + x0 + 1], tx), ty);
                 float dx = (fx - cxPx) * mPerPx, dz = (fy - cyT) * mPerPx;
-                float dist = Mathf.Sqrt(dx * dx + dz * dz);
 
-                // Lav golunun etrafina, gol disina tasmayi onleyen sedde
-                float ring = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(LakeRadius - 5f, LakeRadius - 1f, dist));
-                float berm = levelNorm + (0.6f + 6f * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(LakeRadius, LakeRadius + 20f, dist))) / heightRange;
-                v = Mathf.Lerp(v, Mathf.Max(v, berm), ring);
-
-                // Istasyon platformu: duz, gole yakin
-                float pdx = dx, pdz = dz + padDist;
+                // Istasyon platformu: duz, kraterin kenarinda
+                float pdx = dx - padX, pdz = dz - padZ;
                 float pd = Mathf.Sqrt(pdx * pdx + pdz * pdz);
                 float pw = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(11f, 19f, pd));
                 v = Mathf.Lerp(v, padH, pw);
@@ -592,7 +671,7 @@ public static class VolcanoSweepersSetup
         // Kuyu govdesi icin arazide delik
         {
             Vector3 org = new Vector3(-cxPx * mPerPx, 0f, -cyT * mPerPx);
-            Vector3 wellW = new Vector3(0f, 0f, -padDist) + WellOffset;
+            Vector3 wellW = new Vector3(padX, 0f, padZ) + WellOffset;
             int hr = td.holesResolution;
             var holes = new bool[hr, hr];
             for (int hy = 0; hy < hr; hy++)
@@ -623,11 +702,11 @@ public static class VolcanoSweepersSetup
         go.name = "VolcanoTerrain";
         go.transform.SetParent(parent, false);
         // Krater merkezi dunya merkezine; lav seviyesi y=0
-        float cx = cxPx * mPerPx, cz = cyT * mPerPx;
-        go.transform.position = new Vector3(-cx, -levelNorm * heightRange, -cz);
+        float cx0 = cxPx * mPerPx, cz0 = cyT * mPerPx;
+        go.transform.position = new Vector3(-cx0, -levelNorm * heightRange, -cz0);
         go.GetComponent<Terrain>().drawInstanced = true;
 
-        return new Vector3(0f, 1.5f, -padDist);
+        return new Vector3(padX, 1.5f, padZ);
     }
 
     // ---------- Ekipman istasyonu ----------

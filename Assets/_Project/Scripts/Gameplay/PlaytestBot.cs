@@ -65,7 +65,6 @@ public class PlaytestBot : MonoBehaviour
     IEnumerator Run()
     {
         Debug.Log("[BOT] basladi");
-        float R = field.poolRadius;
         var spawn = player.transform.position;
         yield return new WaitForSeconds(2.5f);
         player.LookAt(Surface(0f, spawn.z + 12f));
@@ -104,12 +103,19 @@ public class PlaytestBot : MonoBehaviour
         yield return WaitIdle();
         Debug.Log($"[BOT] kuyu kovasi sonra: {hang.Fill:F2}");
 
-        // Lav gol kenarina yuru, sonra dok (basili tutma simulasyonu)
-        Vector3 shore = new Vector3(0f, 0f, -(R - 9f));
+        // Lav golune dogru yuru: merkeze dogru ilk lav noktasi
+        Vector3 toCenter = new Vector3(-spawn.x, 0f, -spawn.z).normalized;
+        Vector3 shore = spawn;
+        for (float d = 2f; d < 120f; d += 0.5f)
+        {
+            Vector3 c = spawn + toCenter * d;
+            c.y = 0f;
+            if (field.IsLava(c, 2f)) { shore = spawn + toCenter * (d - 7f); break; }
+        }
         shore.y = field.HeightAt(shore);
         player.Teleport(shore);
         yield return new WaitForSeconds(0.6f);
-        Vector3 target = Surface(0f, -(R - 14f));
+        Vector3 target = Surface(shore.x + toCenter.x * 4.5f, shore.z + toCenter.z * 4.5f);
         player.LookAt(target);
         yield return Shot("03_shore");
         tools.botHoldPour = true;

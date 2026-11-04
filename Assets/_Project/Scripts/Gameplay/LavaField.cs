@@ -3,27 +3,30 @@ using UnityEngine;
 
 public enum MineResult { None, Chipped, Broken }
 
-// Kraterin tamamini dolduran surekli lav golu. Iki katmani CPU'da tutar:
+// Kraterin agzina kadar dolu lav golu. Iki katmani CPU'da tutar:
 //   crust: lavin ustundeki obsidyen kabugu (0..1)
 //   dig:   asagi dogru kazilmis derinlik (0..1, 1 = ana kayaya ulasildi)
 // Ikisi de bir dokuya yazilir; shader yuzeyi bu dokudan sekillendirir.
-// Lav seviyesi dunya y = transform.position.y; arazi bu seviyenin altinda kalan yerler golu olusturur.
+// Lav seviyesi dunya y = transform.position.y. Golun sekli "basin" maskesidir:
+// kraterin icinde, merkezden baglantili ve arazinin lav seviyesinin altinda kaldigi yerler.
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
 public class LavaField : MonoBehaviour
 {
     public static LavaField I;
 
     public Material material;
-    public int res = 512;
-    public int meshRes = 384;
-    public float size = 116f;
-    public float poolRadius = 55f;
+    public TextAsset basinData;          // res*res bayt: 255 = lav golu icinde
+    public int res = 1024;
+    public int meshRes = 512;
+    public float size = 200f;
     public float digDepth = 12f;
     public float crustHeight = 0.14f;
     public float digStep = 0.1f;
 
     NativeArray<float> crust;
     NativeArray<float> dig;
+    NativeArray<byte> basin;
+    int basinCount;
     Texture2D maskTex;
     Color32[] pixels;
     bool dirty;
@@ -34,14 +37,24 @@ public class LavaField : MonoBehaviour
     float progressTime = -10f;
 
     public float BaseY => baseY;
+    public NativeArray<float> CrustNA => crust;
+    public NativeArray<float> DigNA => dig;
+    public NativeArray<byte> BasinNA => basin;
 
     void Awake()
     {
         I = this;
         baseY = transform.position.y;
-        terrain = FindFirstObjectByType<Terrain>();
+        terrain = FindAnyObjectByType<Terrain>();
         crust = new NativeArray<float>(res * res, Allocator.Persistent);
         dig = new NativeArray<float>(res * res, Allocator.Persistent);
+        basin = new NativeArray<byte>(res * res, Allocator.Persistent);
+        if (basinData != null)
+        {
+            var bytes = basinData.bytes;
+            int n = Mathf.Min(bytes.Length, basin.Length);
+            for (int i = 0; i < n; i++) { basin[i] = bytes[i]; if (bytes[i] != 0) basinCount++; }
+        }
         pixels = new Color32[res * res];
         maskTex = new Texture2D(res, res, TextureFormat.RGBA32, false, true)
         {
@@ -53,11 +66,17 @@ public class LavaField : MonoBehaviour
         matInstance.SetFloat("_FieldSize", size);
         matInstance.SetFloat("_CrustHeight", crustHeight);
         matInstance.SetFloat("_DigDepth", digDepth);
-        matInstance.SetFloat("_PoolRadius", poolRadius);
         GetComponent<MeshRenderer>().sharedMaterial = matInstance;
         GetComponent<MeshFilter>().sharedMesh = BuildMesh();
         dirty = true;
         Upload();
+    }
+
+    void OnDestroy()
+    {
+        if (crust.IsCreated) crust.Dispose();
+        if (dig.IsCreated) dig.Dispose();
+        if (basin.IsCreated) basin.Dispose();
     }
 
     Mesh BuildMesh()
@@ -97,7 +116,7 @@ public class LavaField : MonoBehaviour
     void Upload()
     {
         for (int i = 0; i < pixels.Length; i++)
-            pixels[i] = new Color32((byte)(crust[i] * 255f), (byte)(dig[i] * 255f), 0, 255);
+            pixels[i] = new Color32((byte)(crust[i] * 255f), (byte)(dig[i] * 255f), basin[i], 255);
         maskTex.SetPixels32(pixels);
         maskTex.Apply(false);
         dirty = false;
@@ -109,15 +128,6 @@ public class LavaField : MonoBehaviour
     {
         Vector3 l = world - transform.position;
         return new Vector2((l.x / size + 0.5f) * (res - 1), (l.z / size + 0.5f) * (res - 1));
-    }
-
-    public NativeArray<float> CrustNA => crust;
-    public NativeArray<float> DigNA => dig;
-
-    void OnDestroy()
-    {
-        if (crust.IsCreated) crust.Dispose();
-        if (dig.IsCreated) dig.Dispose();
     }
 
     float Sample(NativeArray<float> a, Vector2 g)
@@ -141,24 +151,32 @@ public class LavaField : MonoBehaviour
         return terrain.SampleHeight(world) + terrain.transform.position.y;
     }
 
-    float PlanarDist(Vector3 world)
+    bool InBasin(Vector3 world)
     {
-        Vector3 l = world - transform.position;
-        return Mathf.Sqrt(l.x * l.x + l.z * l.z);
+        Vector2 g = ToGrid(world);
+        int x = Mathf.RoundToInt(g.x), y = Mathf.RoundToInt(g.y);
+        if (x < 0 || y < 0 || x >= res || y >= res) return false;
+        return basin[y * res + x] != 0;
     }
 
-    // Burasi lav golunun icinde mi (arazi lav seviyesinin altinda)?
+    // Burasi lav golunun icinde mi?
     public bool IsLava(Vector3 world, float shrink = 0f)
     {
-        if (PlanarDist(world) > poolRadius - shrink) return false;
-        return TerrainHeight(world) < baseY - 0.15f;
+        if (!InBasin(world)) return false;
+        if (TerrainHeight(world) >= baseY - 0.15f) return false;
+        if (shrink > 0f)
+        {
+            if (!InBasin(world + new Vector3(shrink, 0f, 0f)) || !InBasin(world - new Vector3(shrink, 0f, 0f)) ||
+                !InBasin(world + new Vector3(0f, 0f, shrink)) || !InBasin(world - new Vector3(0f, 0f, shrink))) return false;
+        }
+        return true;
     }
 
     // Yuzeyin dunya yuksekligi: lav yuzeyi veya arazi (hangisi yuksekse)
     public float HeightAt(Vector3 world)
     {
         float th = TerrainHeight(world);
-        if (PlanarDist(world) > poolRadius) return th;
+        if (!InBasin(world)) return th;
         Vector2 g = ToGrid(world);
         float surface = baseY - Sample(dig, g) * digDepth + CrustShape(Sample(crust, g)) * crustHeight;
         return Mathf.Max(th, surface);
@@ -209,15 +227,16 @@ public class LavaField : MonoBehaviour
                 if (d >= radius) continue;
                 float w = 1f - d / radius;
                 w = w * w * (3f - 2f * w);
+                if (basin[y * res + x] == 0) continue;
                 Vector3 wp = transform.position + new Vector3((x / (float)(res - 1) - 0.5f) * size, 0f, (y / (float)(res - 1) - 0.5f) * size);
-                if (!IsLava(wp, 1.5f)) continue;
+                if (TerrainHeight(wp) >= baseY - 0.15f) continue;
                 brush(y * res + x, w);
             }
         }
         dirty = true;
     }
 
-    // Su damlasi dustugu yerde kabuk olusturur
+    // Su parcacigi dustugu yerde kabuk olusturur
     public void AddCrust(Vector3 world, float radius, float amount)
     {
         Paint(world, radius, (i, w) =>
@@ -245,21 +264,22 @@ public class LavaField : MonoBehaviour
 
     // ---------- Durum ----------
 
-    // Kazilan derinligin ortalamasi (0..1); sik hesaplanmasin diye onbellekli
+    // Kazilan derinligin ortalamasi (0..1, tum gol uzerinden); sik hesaplanmasin diye onbellekli
     public float Progress
     {
         get
         {
-            if (Time.unscaledTime - progressTime < 0.3f) return progressCache;
+            if (Time.unscaledTime - progressTime < 0.5f) return progressCache;
             progressTime = Time.unscaledTime;
-            float sum = 0f; int n = 0;
-            float rr = poolRadius - 6f;
+            if (basinCount == 0) return 0f;
+            float sum = 0f;
+            int n = 0;
             for (int y = 0; y < res; y += 4)
                 for (int x = 0; x < res; x += 4)
                 {
-                    float wx = (x / (float)(res - 1) - 0.5f) * size, wz = (y / (float)(res - 1) - 0.5f) * size;
-                    if (wx * wx + wz * wz > rr * rr) continue;
-                    sum += dig[y * res + x]; n++;
+                    int i = y * res + x;
+                    if (basin[i] == 0) continue;
+                    sum += dig[i]; n++;
                 }
             progressCache = n == 0 ? 0f : sum / n;
             return progressCache;

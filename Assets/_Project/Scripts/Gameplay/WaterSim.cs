@@ -24,7 +24,7 @@ public struct WaterSimParams
 {
     public float dt, h, rho0, eps, poly6, spiky, scorrK, wdq, xsph, radius, friction;
     public int iterations;
-    public float baseY, size, digDepth, crustH, poolR;
+    public float baseY, size, digDepth, crustH;
     public int res;
     public float3 lavaC;
     public float gridOx, gridOz, gridCell;
@@ -61,6 +61,7 @@ public class WaterSim : MonoBehaviour
     NativeArray<int> evtCount;
     NativeArray<float> dummy;
     NativeArray<float> crustNA, digNA;
+    NativeArray<byte> basinNA;
     bool ownsMasks;
 
     WaterSimParams P;
@@ -121,8 +122,8 @@ public class WaterSim : MonoBehaviour
     void SetupFields(LavaField field)
     {
         // Arazi yukseklik izgarasi (statik)
-        const float half = 80f;
-        const float cell = 0.4f;
+        float half = field.size * 0.5f + 2f;
+        const float cell = 0.5f;
         int n = Mathf.CeilToInt(half * 2f / cell) + 1;
         terrain = new NativeArray<float>(n * n, Allocator.Persistent);
         Vector3 c = field.transform.position;
@@ -133,13 +134,13 @@ public class WaterSim : MonoBehaviour
 
         crustNA = field.CrustNA;
         digNA = field.DigNA;
+        basinNA = field.BasinNA;
 
         InitParams();
         P.baseY = field.BaseY;
         P.size = field.size;
         P.digDepth = field.digDepth;
         P.crustH = field.crustHeight;
-        P.poolR = field.poolRadius;
         P.res = field.res;
         P.lavaC = new float3(c.x, c.y, c.z);
         P.gridOx = ox; P.gridOz = oz; P.gridCell = cell; P.gridN = n;
@@ -157,10 +158,11 @@ public class WaterSim : MonoBehaviour
         for (int i = 0; i < terrain.Length; i++) terrain[i] = groundY;
         crustNA = new NativeArray<float>(4, Allocator.Persistent);
         digNA = new NativeArray<float>(4, Allocator.Persistent);
+        basinNA = new NativeArray<byte>(4, Allocator.Persistent);
         ownsMasks = true;
         InitParams();
         P.baseY = groundY - 1000f;
-        P.size = 1f; P.res = 2; P.poolR = 0f; P.digDepth = 1f; P.crustH = 0f;
+        P.size = 1f; P.res = 2; P.digDepth = 1f; P.crustH = 0f;
         P.gridOx = -10f; P.gridOz = -10f; P.gridCell = 0.2f; P.gridN = n;
         P.lowest = groundY - 50f;
         ready = true;
@@ -209,7 +211,7 @@ public class WaterSim : MonoBehaviour
         if (evtInfo.IsCreated) evtInfo.Dispose();
         Dispose(ref evtCount);
         Dispose(ref dummy);
-        if (ownsMasks) { Dispose(ref crustNA); Dispose(ref digNA); }
+        if (ownsMasks) { Dispose(ref crustNA); Dispose(ref digNA); Dispose(ref basinNA); }
         if (I == this) I = null;
     }
 
@@ -285,7 +287,7 @@ public class WaterSim : MonoBehaviour
             lambda = lambda, life = life, impact = impact,
             kind = kind, contact = contact, cellOf = cellOf,
             count = count, cellStart = cellStart, cellFill = cellFill, sorted = sorted, nbr = nbr, nbrCount = nbrCount,
-            terrain = terrain, crust = crustNA, dig = digNA, obs = obs,
+            terrain = terrain, crust = crustNA, dig = digNA, basin = basinNA, obs = obs,
             evtPos = evtPos, evtInfo = evtInfo, evtCount = evtCount,
         };
         job.Schedule().Complete();
@@ -386,6 +388,7 @@ public class WaterSim : MonoBehaviour
         public NativeArray<int3> cellOf;
         public NativeArray<int> count, cellStart, cellFill, sorted, nbr, nbrCount;
         [Unity.Collections.ReadOnly] public NativeArray<float> terrain, crust, dig;
+        [Unity.Collections.ReadOnly] public NativeArray<byte> basin;
         [Unity.Collections.ReadOnly] public NativeArray<WaterObstacle> obs;
         public NativeArray<float4> evtPos;
         public NativeArray<int2> evtInfo;
@@ -441,10 +444,11 @@ public class WaterSim : MonoBehaviour
             float th = TerrainAt(x, z);
             lava = false;
             float dx = x - P.lavaC.x, dz = z - P.lavaC.z;
-            float pr = math.sqrt(dx * dx + dz * dz);
-            if (pr > P.poolR || th >= P.baseY - 0.15f) return th;
             float u = (dx / P.size + 0.5f) * (P.res - 1);
             float v = (dz / P.size + 0.5f) * (P.res - 1);
+            int bx = (int)(u + 0.5f), by = (int)(v + 0.5f);
+            if (bx < 0 || by < 0 || bx >= P.res || by >= P.res) return th;
+            if (basin[by * P.res + bx] == 0 || th >= P.baseY - 0.15f) return th;
             float c = SampleMask(crust, u, v);
             float d = SampleMask(dig, u, v);
             float t = math.saturate((c - 0.3f) / 0.3f);

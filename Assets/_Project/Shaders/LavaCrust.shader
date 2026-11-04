@@ -98,12 +98,9 @@ Shader "VolcanoSweepers/LavaCrust"
             half4 frag(Varyings IN) : SV_Target
             {
                 // Duzensiz havuz kenari
-                float2 local = (IN.uv - 0.5) * _FieldSize;
-                float r = length(local);
-                clip(_PoolRadius - r);
-
                 float2 meters = IN.uv * _FieldSize;
                 float4 m = SAMPLE_TEXTURE2D(_Mask, sampler_Mask, IN.uv);
+                clip(m.b - 0.5);                      // yalniz krater icindeki lav golu
 
                 // Yuzey egimi (yukseklik farkindan)
                 float e = _Mask_TexelSize.x;
