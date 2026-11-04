@@ -18,6 +18,14 @@ public class BucketWater : MonoBehaviour
     MaterialPropertyBlock block;
     float fill;
     static readonly int FillY = Shader.PropertyToID("_FillY");
+    static readonly int RippleId = Shader.PropertyToID("_Ripple");
+    static readonly int RimRadiusId = Shader.PropertyToID("_RimRadius");
+    static readonly int TiltXId = Shader.PropertyToID("_TiltX");
+    static readonly int TiltZId = Shader.PropertyToID("_TiltZ");
+    Vector3 lastPos;
+    Vector3 lastVel;
+    float ripple = 0.35f;
+    Vector2 tilt, tiltVel;      // yuzey egimi (dunya x,z): yay-sonumleyici calkalanma
 
     public float Fill => fill;
 
@@ -72,8 +80,28 @@ public class BucketWater : MonoBehaviour
         Bind();
         if (body == null) return;
         float levelY = bucket.TransformPoint(new Vector3(0f, transform.localPosition.y, 0f)).y;
+        // Kova hareket ettikce su calkalanir; durunca yatisir
+        float dt = Mathf.Max(Time.deltaTime, 1e-4f);
+        Vector3 vel = Application.isPlaying ? (bucket.position - lastPos) / dt : Vector3.zero;
+        lastPos = bucket.position;
+        float speed = vel.magnitude;
+        ripple = Mathf.Lerp(ripple, Mathf.Clamp(0.3f + speed * 0.5f, 0.3f, 2f), 6f * dt);
+
+        // Calkalanma: kova ivmelenince su geriye yigilir (yuzey egimi = -ivme / g), yay-sonumleyici ile salinir
+        Vector3 acc = (vel - lastVel) / dt;
+        lastVel = vel;
+        if (acc.sqrMagnitude > 4000f) acc = acc.normalized * 63f;
+        Vector2 target = new Vector2(-acc.x, -acc.z) / 9.81f;
+        const float omega = 9f, zeta = 0.22f;
+        tiltVel += (omega * omega * (target - tilt) - 2f * zeta * omega * tiltVel) * Mathf.Min(dt, 0.033f);
+        tilt += tiltVel * Mathf.Min(dt, 0.033f);
+        tilt = Vector2.ClampMagnitude(tilt, 0.4f);
         bodyRenderer.GetPropertyBlock(block);
         block.SetFloat(FillY, levelY);
+        block.SetFloat(RippleId, ripple);
+        block.SetFloat(RimRadiusId, rimRadius);
+        block.SetFloat(TiltXId, tilt.x);
+        block.SetFloat(TiltZId, tilt.y);
         bodyRenderer.SetPropertyBlock(block);
     }
 

@@ -47,6 +47,7 @@ public static class VolcanoSweepersSetup
             Art + "/Textures/Pickaxe/Material.001_Normal_OpenGL.png",
             Art + "/Textures/LithicCore/LithicCore_Normal.png",
             Art + "/Textures/ObsidianTile/Obsidian_normal.png",
+            Art + "/Textures/Rock/RockWall_Normal.png",
             Art + "/Terrain/Volcano_Normal.png",
             Art + "/Textures/Water/Water_TileNormal.png",
             Art + "/Textures/Water/Water_BaseNormal.png",
@@ -57,6 +58,7 @@ public static class VolcanoSweepersSetup
             Art + "/Textures/Pickaxe/Pickaxe_MetalSmooth.png",
             Art + "/Textures/ObsidianTile/Obsidian_MetalSmooth.png",
             Art + "/Textures/LithicCore/LithicCore_Metallic.png",
+            Art + "/Textures/Rock/RockWall_MetalSmooth.png",
         };
         foreach (var p in normals) Reimport(p, ti => ti.textureType = TextureImporterType.NormalMap);
         foreach (var p in linear) Reimport(p, ti => ti.sRGBTexture = false);
@@ -76,7 +78,7 @@ public static class VolcanoSweepersSetup
 
     class MatSet
     {
-        public Material lava, obsidian, cleared, bubble, bucket, pickaxe, core, magma, water, rock, particle, pondRim, waterDrop, lavaCrust, metal, wood, concrete, waterTrail, liquid;
+        public Material lava, obsidian, cleared, bubble, bucket, pickaxe, core, magma, water, rock, particle, pondRim, waterDrop, lavaCrust, metal, wood, concrete, waterTrail, liquid, rockWall;
     }
 
     static Texture2D Tex(string path) => AssetDatabase.LoadAssetAtPath<Texture2D>(path);
@@ -201,6 +203,11 @@ public static class VolcanoSweepersSetup
         m.metal = Lit("StationMetal", new Color(0.32f, 0.35f, 0.4f), smooth: 0.65f, metal: 0.85f);
         m.wood = Lit("StationWood", new Color(0.33f, 0.2f, 0.11f), smooth: 0.15f);
         m.concrete = Lit("StationConcrete", new Color(0.3f, 0.28f, 0.27f), smooth: 0.1f);
+        m.rockWall = Lit("RockWall", Color.white, T + "Rock/RockWall_Color.png", T + "Rock/RockWall_Normal.png",
+            T + "Rock/RockWall_MetalSmooth.png", smooth: 1f);
+        m.rockWall.SetTextureScale("_BaseMap", new Vector2(0.45f, 0.45f));
+        m.rockWall.SetTextureScale("_BumpMap", new Vector2(0.45f, 0.45f));
+        m.rockWall.SetTextureScale("_MetallicGlossMap", new Vector2(0.45f, 0.45f));
         m.rock = Lit("Rock", new Color(0.13f, 0.1f, 0.09f), smooth: 0.1f);
         m.pondRim = Lit("PondRim", new Color(0.2f, 0.17f, 0.16f), smooth: 0.15f);
         m.water = Lit("Water", new Color(0.3f, 0.6f, 0.85f), T + "Water/Water_Tile.png", T + "Water/Water_TileNormal.png",
@@ -248,6 +255,7 @@ public static class VolcanoSweepersSetup
         }
         lq.shader = Shader.Find("VolcanoSweepers/LiquidVessel");
         lq.SetTexture("_BaseMap", Tex(T + "Water/Water_Tile.png"));
+        lq.SetTexture("_BumpMap", Tex(T + "Water/Water_TileNormal.png"));
         lq.SetColor("_Color", new Color(0.35f, 0.62f, 0.9f, 1f));
         lq.SetColor("_SurfaceColor", new Color(0.55f, 0.8f, 1f, 1f));
         lq.SetFloat("_Smoothness", 0.92f);
@@ -696,7 +704,35 @@ public static class VolcanoSweepersSetup
         };
         AssetDatabase.DeleteAsset(TerrainDir + "/VolcanoLayer.terrainlayer");
         AssetDatabase.CreateAsset(layer, TerrainDir + "/VolcanoLayer.terrainlayer");
-        td.terrainLayers = new[] { layer };
+        // Platform zemini: kaya duvar dokusu (saglam tas zemin)
+        var rockLayer = new TerrainLayer
+        {
+            diffuseTexture = Tex(Art + "/Textures/Rock/RockWall_Color.png"),
+            normalMapTexture = Tex(Art + "/Textures/Rock/RockWall_Normal.png"),
+            tileSize = new Vector2(3.2f, 3.2f),
+            smoothness = 0.35f,
+            normalScale = 1.2f,
+        };
+        AssetDatabase.DeleteAsset(TerrainDir + "/RockLayer.terrainlayer");
+        AssetDatabase.CreateAsset(rockLayer, TerrainDir + "/RockLayer.terrainlayer");
+        td.terrainLayers = new[] { layer, rockLayer };
+        {
+            td.alphamapResolution = 1024;
+            int ar = td.alphamapResolution;
+            Vector3 aorg = new Vector3(-cxPx * mPerPx, 0f, -cyT * mPerPx);
+            var maps = new float[ar, ar, 2];
+            for (int ay = 0; ay < ar; ay++)
+                for (int ax = 0; ax < ar; ax++)
+                {
+                    float wx = aorg.x + (ax + 0.5f) / ar * worldSize;
+                    float wz = aorg.z + (ay + 0.5f) / ar * worldSize;
+                    float pd2 = Mathf.Sqrt((wx - padX) * (wx - padX) + (wz - padZ) * (wz - padZ));
+                    float rw = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(10f, 17f, pd2));
+                    maps[ay, ax, 0] = 1f - rw;
+                    maps[ay, ax, 1] = rw;
+                }
+            td.SetAlphamaps(0, 0, maps);
+        }
         AssetDatabase.DeleteAsset(TerrainDir + "/VolcanoTerrain.asset");
         AssetDatabase.CreateAsset(td, TerrainDir + "/VolcanoTerrain.asset");
 
@@ -837,6 +873,31 @@ public static class VolcanoSweepersSetup
         return m;
     }
 
+    // Kesit halkalarindan (yaricap, yukseklik) donel serit mesh: ustu duz, kenari egimli tas doseme
+    static Mesh StripMesh(System.Collections.Generic.List<Vector2> profile, int seg, string name)
+    {
+        var verts = new System.Collections.Generic.List<Vector3>();
+        var uvs = new System.Collections.Generic.List<Vector2>();
+        var tris = new System.Collections.Generic.List<int>();
+        foreach (var pr in profile)
+            for (int i = 0; i <= seg; i++)
+            {
+                float a = i / (float)seg * Mathf.PI * 2f;
+                float x = Mathf.Cos(a) * pr.x, z = Mathf.Sin(a) * pr.x;
+                verts.Add(new Vector3(x, pr.y, z));
+                uvs.Add(new Vector2(x, z));
+            }
+        for (int r = 0; r < profile.Count - 1; r++)
+            for (int i = 0; i < seg; i++)
+            {
+                int a = r * (seg + 1) + i, b = (r + 1) * (seg + 1) + i;
+                tris.AddRange(new[] { a, b, a + 1, a + 1, b, b + 1 });
+            }
+        var m = new Mesh { name = name };
+        m.SetVertices(verts); m.SetUVs(0, uvs); m.SetTriangles(tris, 0); m.RecalculateNormals();
+        return m;
+    }
+
     // Duz halka (kuyunun etrafindaki tas doseme)
     static Mesh RingMesh(float inner, float outer, int seg)
     {
@@ -923,8 +984,11 @@ public static class VolcanoSweepersSetup
         wbox.size = new Vector3(2.2f, 1.6f, 2.2f);
 
         // Tas doseme, kuyu govdesi ve dipteki su
-        var apron = Prim(PrimitiveType.Cube, "WellApron", root, wellPos + new Vector3(0f, 0.02f, 0f), Vector3.one, m.concrete);
-        apron.GetComponent<MeshFilter>().sharedMesh = RingMesh(0.66f, 1.55f, 40);
+        var apron = Prim(PrimitiveType.Cube, "WellPaving", root, wellPos, Vector3.one, m.rockWall);
+        apron.GetComponent<MeshFilter>().sharedMesh = StripMesh(new System.Collections.Generic.List<Vector2>
+        {
+            new Vector2(0.66f, 0.07f), new Vector2(3.3f, 0.07f), new Vector2(3.65f, 0.0f), new Vector2(3.9f, -0.12f),
+        }, 56, "WellPaving");
         float shaftDepth = 4.4f;
         float waterLevel = wellPos.y - 3.3f;
         var shaft = Prim(PrimitiveType.Cube, "WellShaft", root, wellPos + new Vector3(0f, 0.5f, 0f), Vector3.one, m.rock);

@@ -112,7 +112,7 @@ public static class BucketProfile
             // Agza kadar uzat: olculen ic yaricap, onceki halkayi gecmesin (dudak disa dogru acilmasin)
             float prevR = list[list.Count - 1].y;
             float topR = rimR > 0f ? Mathf.Min(rimR, prevR) : prevR;
-            list.Add(new Vector2(bodyTop - 0.004f, topR * 0.985f));
+            list.Add(new Vector2(bodyTop - 0.0005f, topR));
         }
         Debug.Log($"[Bucket] govde agzi y={bodyTop:F3}, ic profil son nokta y={(list.Count > 0 ? list[list.Count - 1].x : 0f):F3}");
         return list;
@@ -121,8 +121,8 @@ public static class BucketProfile
     // Su hacmi: icerideki profile %5 pay birakarak oturan bir donel mesh
     public static Mesh BuildWaterMesh(List<Vector2> inner, out float volume, out float[] levelTable, out float rimRadius, out float floorY, out float fullY)
     {
-        const float clearance = 0.975f;
-        const float margin = 0.002f;
+        const float clearance = 0.988f;
+        const float margin = 0.0012f;
         const int seg = 40;
         var prof = new List<Vector2>();
         foreach (var p in inner) prof.Add(new Vector2(p.x, Mathf.Max(0.005f, p.y * clearance - margin)));
@@ -131,7 +131,7 @@ public static class BucketProfile
         floorY = prof[0].x;
         float topY = prof[prof.Count - 1].x;
         rimRadius = inner[inner.Count - 1].y;
-        fullY = topY - 0.004f;                      // su agzin hemen altinda biter (tasmaz)
+        fullY = topY - 0.0008f;                      // su agzin hemen altinda biter (tasmaz)
 
         // Hacim (kesik koniler) ve seviye tablosu (doluluk -> yukseklik)
         var cum = new float[prof.Count];

@@ -27,11 +27,19 @@ Material:
         m_Texture: {fileID: 2800000, guid: 5e10ce9abac04e646ba54a74c9f6025a, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
+    - _BumpMap:
+        m_Texture: {fileID: 2800000, guid: d9c5904212ea0f34e838bb3c8be2ef0e, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
     - _FillY: 0
+    - _RimRadius: 0.14
+    - _Ripple: 0.5
     - _SectionZ: 1000000
     - _Smoothness: 0.92
+    - _TiltX: 0
+    - _TiltZ: 0
     m_Colors:
     - _Color: {r: 0.35, g: 0.62, b: 0.9, a: 1}
     - _SurfaceColor: {r: 0.55, g: 0.8, b: 1, a: 1}
