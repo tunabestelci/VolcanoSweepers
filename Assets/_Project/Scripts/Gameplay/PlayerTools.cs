@@ -354,10 +354,10 @@ public class PlayerTools : MonoBehaviour
                     Vector2 o = Random.insideUnitCircle * spread * Mathf.Sqrt(Random.value);
                     Vector3 land = center + new Vector3(o.x, 0f, o.y);
                     if (field != null) land.y = field.HeightAt(land);
-                    Vector3 spawn = mouth + right3 * Random.Range(-0.1f, 0.1f) + Random.insideUnitSphere * 0.03f;
+                    Vector3 spawn = mouth + right3 * Random.Range(-0.1f, 0.1f) + Random.insideUnitSphere * 0.05f;
                     float t = Mathf.Clamp(0.34f + dist * 0.07f + Random.Range(-0.05f, 0.08f), 0.3f, 0.75f);
                     Vector3 v = (land - spawn) / t - 0.5f * Physics.gravity * t;
-                    WaterDrop.Emit(spawn, v);
+                    WaterSim.Emit(spawn + v * (Time.deltaTime * Random.value), v);
                     h.fill = Mathf.Max(0f, h.fill - 1f / DropsPerBucket);
                 }
                 hissTimer -= Time.deltaTime;

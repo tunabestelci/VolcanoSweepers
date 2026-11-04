@@ -76,7 +76,7 @@ public static class VolcanoSweepersSetup
 
     class MatSet
     {
-        public Material lava, obsidian, cleared, bubble, bucket, pickaxe, core, magma, water, rock, particle, pondRim, waterDrop, lavaCrust, metal, wood, concrete, waterTrail;
+        public Material lava, obsidian, cleared, bubble, bucket, pickaxe, core, magma, water, rock, particle, pondRim, waterDrop, lavaCrust, metal, wood, concrete, waterTrail, liquid;
     }
 
     static Texture2D Tex(string path) => AssetDatabase.LoadAssetAtPath<Texture2D>(path);
@@ -157,6 +157,7 @@ public static class VolcanoSweepersSetup
         mat.SetOverrideTag("RenderType", "Transparent");
         mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
         mat.renderQueue = 3000;
+        mat.enableInstancing = true;
         EditorUtility.SetDirty(mat);
         return mat;
     }
@@ -236,6 +237,22 @@ public static class VolcanoSweepersSetup
         m.waterDrop = TransparentWater("WaterDrop", T + "Water/Water_Base.png", T + "Water/Water_BaseNormal.png", new Color(0.18f, 0.4f, 0.7f, 0.22f), Vector2.one);
         m.waterTrail = UnlitTransparent("WaterTrail", T + "Water/Water_Tile.png", new Color(0.5f, 0.78f, 1f, 0.1f));
 
+        // Kap ici sivi (dunyada yatay kesilen silindir)
+        string lqPath = Mats + "/LiquidVessel.mat";
+        var lq = AssetDatabase.LoadAssetAtPath<Material>(lqPath);
+        if (lq == null)
+        {
+            lq = new Material(Shader.Find("VolcanoSweepers/LiquidVessel"));
+            AssetDatabase.CreateAsset(lq, lqPath);
+        }
+        lq.shader = Shader.Find("VolcanoSweepers/LiquidVessel");
+        lq.SetTexture("_BaseMap", Tex(T + "Water/Water_Tile.png"));
+        lq.SetColor("_Color", new Color(0.35f, 0.62f, 0.9f, 1f));
+        lq.SetColor("_SurfaceColor", new Color(0.55f, 0.8f, 1f, 1f));
+        lq.SetFloat("_Smoothness", 0.92f);
+        EditorUtility.SetDirty(lq);
+        m.liquid = lq;
+
         string pPath = Mats + "/Particle.mat";
         var pm = AssetDatabase.LoadAssetAtPath<Material>(pPath);
         if (pm == null)
@@ -297,12 +314,23 @@ public static class VolcanoSweepersSetup
         Object.DestroyImmediate(water.GetComponent<Collider>());
         water.GetComponent<MeshRenderer>().sharedMaterial = m.water;
         water.transform.SetParent(bucket.transform, false);
-        float dia = Mathf.Min(bb.size.x, bb.size.z) * 0.82f;
+        float dia = Mathf.Min(bb.size.x, bb.size.z) * 0.9f;
         water.transform.localScale = new Vector3(dia, 0.01f, dia);
         var bw = water.AddComponent<BucketWater>();
-        bw.emptyY = -bb.extents.y + 0.04f;
-        bw.fullY = bb.extents.y - 0.035f;
+        bw.emptyY = -bb.extents.y + 0.03f;
+        bw.fullY = bb.extents.y - 0.01f;
         water.transform.localPosition = new Vector3(0f, bw.emptyY, 0f);
+
+        // Suyun govdesi: tabandan yuzeye kadar dolu hacim
+        var body = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        body.name = "WaterBody";
+        Object.DestroyImmediate(body.GetComponent<Collider>());
+        body.GetComponent<MeshRenderer>().sharedMaterial = m.liquid;
+        body.transform.SetParent(bucket.transform, false);
+        float bodyDia = Mathf.Min(bb.size.x, bb.size.z) * 0.86f;
+        body.transform.localScale = new Vector3(bodyDia, 0.01f, bodyDia);
+        body.transform.localPosition = new Vector3(0f, bw.emptyY, 0f);
+        body.SetActive(false);
         ps.bucket = Save(bucket, "Bucket");
 
         // Kazma
@@ -322,33 +350,6 @@ public static class VolcanoSweepersSetup
         var magma = Wrap("MagmaBall", Art + "/Models/MagmaBall/MagmaBall.fbx", 0.35f, BallEuler, m.magma, out _);
         ps.magma = Save(magma, "MagmaBall");
 
-        // Su damlasi (test.zip -> lan.glb)
-        // glb icindeki mesh'leri dogrudan kullan (ic ice prefab olusturma)
-        var drop = new GameObject("WaterDrop");
-        foreach (var obj in AssetDatabase.LoadAllAssetsAtPath(Art + "/Models/Water/WaterDrop.glb"))
-        {
-            var mesh = obj as Mesh;
-            if (mesh == null) continue;
-            var part = new GameObject(mesh.name);
-            part.transform.SetParent(drop.transform, false);
-            part.transform.localScale = Vector3.one * 0.5f;
-            part.AddComponent<MeshFilter>().sharedMesh = mesh;
-            part.AddComponent<MeshRenderer>().sharedMaterial = m.waterDrop;
-        }
-        var tr = drop.AddComponent<TrailRenderer>();
-        tr.sharedMaterial = m.waterTrail;
-        tr.time = 0.16f;
-        tr.widthMultiplier = 0.06f;
-        tr.widthCurve = new AnimationCurve(new Keyframe(0f, 1f), new Keyframe(1f, 0.15f));
-        tr.minVertexDistance = 0.04f;
-        tr.alignment = LineAlignment.View;
-        tr.textureMode = LineTextureMode.Stretch;
-        tr.numCapVertices = 3;
-        tr.numCornerVertices = 2;
-        tr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-        tr.receiveShadows = false;
-        tr.autodestruct = false;
-        ps.waterDrop = Save(drop, "WaterDrop");
         return ps;
     }
 
@@ -376,7 +377,6 @@ public static class VolcanoSweepersSetup
             coreItem = AssetDatabase.LoadAssetAtPath<GameObject>(Prefabs + "/LithicCoreItem.prefab"),
             coreVisual = AssetDatabase.LoadAssetAtPath<GameObject>(Prefabs + "/LithicCoreVisual.prefab"),
             magma = AssetDatabase.LoadAssetAtPath<GameObject>(Prefabs + "/MagmaBall.prefab"),
-            waterDrop = AssetDatabase.LoadAssetAtPath<GameObject>(Prefabs + "/WaterDrop.prefab"),
         };
 
         var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
@@ -432,7 +432,13 @@ public static class VolcanoSweepersSetup
         var sys = new GameObject("Systems");
         var fx = sys.AddComponent<FxConfig>();
         fx.particleMaterial = m.particle;
-        fx.waterDropPrefab = prefabs.waterDrop;
+        var sim = sys.AddComponent<WaterSim>();
+        sim.material = m.waterDrop;
+        foreach (var o in AssetDatabase.LoadAllAssetsAtPath(Art + "/Models/Water/WaterDrop.glb"))
+        {
+            var mesh = o as Mesh;
+            if (mesh != null) { sim.mesh = mesh; break; }
+        }
         var sfx = sys.AddComponent<SfxPlayer>();
         sfx.steamHiss = Clip("steam_hiss");
         sfx.waterPour = Clip("water_pour");
@@ -861,6 +867,7 @@ public static class VolcanoSweepersSetup
         bcol.height = 0.34f;
         bigGo.AddComponent<WaterSource>();
         var big = bigGo.AddComponent<BigBucket>();
+        big.collectsParticles = true;
         Prim(PrimitiveType.Cylinder, "BigBucketBase", root, wellPos + toPad * 1.65f + new Vector3(0f, 0.03f, 0f), new Vector3(1.3f, 0.06f, 1.3f), m.concrete);
         var pourT = new GameObject("PourTarget").transform;
         pourT.SetParent(root, false);
@@ -870,8 +877,8 @@ public static class VolcanoSweepersSetup
         float axisY = pivot != null ? pivot.position.y : wellPos.y + 1.7f;
         float logR = 0.14f * WellScale;
         Vector3 anchor = new Vector3(wellPos.x, axisY - logR, wellPos.z);
-        float hangScale = 1.2f;
-        float topY = axisY - logR - 0.34f * hangScale * 0.5f - 0.28f;
+        float hangScale = 2.0f;
+        float topY = axisY - logR - 0.34f * hangScale * 0.5f - 0.06f;
         var hang = (GameObject)PrefabUtility.InstantiatePrefab(bucketPrefab, root);
         hang.name = "WellBucket";
         hang.transform.localScale = Vector3.one * hangScale;
@@ -892,6 +899,7 @@ public static class VolcanoSweepersSetup
         wellComp.bottomY = waterLevel + 0.25f;
         wellComp.waterY = waterLevel;
         wellComp.logRadius = logR;
+        wellComp.rimY = wellPos.y + 0.86f * WellScale;
 
         // Sandiklar
         Prim(PrimitiveType.Cube, "Crate1", root, c + new Vector3(-5f, 0.45f, -1f), new Vector3(1.2f, 0.9f, 1.2f), m.wood, true);

@@ -1,3 +1,4 @@
+using Unity.Collections;
 using UnityEngine;
 
 public enum MineResult { None, Chipped, Broken }
@@ -21,8 +22,8 @@ public class LavaField : MonoBehaviour
     public float crustHeight = 0.14f;
     public float digStep = 0.1f;
 
-    float[] crust;
-    float[] dig;
+    NativeArray<float> crust;
+    NativeArray<float> dig;
     Texture2D maskTex;
     Color32[] pixels;
     bool dirty;
@@ -39,8 +40,8 @@ public class LavaField : MonoBehaviour
         I = this;
         baseY = transform.position.y;
         terrain = FindFirstObjectByType<Terrain>();
-        crust = new float[res * res];
-        dig = new float[res * res];
+        crust = new NativeArray<float>(res * res, Allocator.Persistent);
+        dig = new NativeArray<float>(res * res, Allocator.Persistent);
         pixels = new Color32[res * res];
         maskTex = new Texture2D(res, res, TextureFormat.RGBA32, false, true)
         {
@@ -110,7 +111,16 @@ public class LavaField : MonoBehaviour
         return new Vector2((l.x / size + 0.5f) * (res - 1), (l.z / size + 0.5f) * (res - 1));
     }
 
-    float Sample(float[] a, Vector2 g)
+    public NativeArray<float> CrustNA => crust;
+    public NativeArray<float> DigNA => dig;
+
+    void OnDestroy()
+    {
+        if (crust.IsCreated) crust.Dispose();
+        if (dig.IsCreated) dig.Dispose();
+    }
+
+    float Sample(NativeArray<float> a, Vector2 g)
     {
         float x = Mathf.Clamp(g.x, 0f, res - 1.001f), y = Mathf.Clamp(g.y, 0f, res - 1.001f);
         int x0 = (int)x, y0 = (int)y;

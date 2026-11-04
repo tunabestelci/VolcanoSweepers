@@ -1,10 +1,12 @@
 using UnityEngine;
 
-// Kuyunun yanindaki buyuk kova. Kuyudan cekilince dolar, oyuncunun kovalari bundan doldurulur.
+// Kova (buyuk kova / kuyu kovasi). Su parcaciklari icine dusunce dolar.
 // WaterSource ile ayni nesnede durur (kova doldurma hedefi).
 public class BigBucket : MonoBehaviour
 {
-    public int capacity = 6;   // kac kucuk kova doldurabilir
+    public int capacity = 6;                  // kac kucuk kova doldurabilir
+    public bool collectsParticles;            // fizik suyunu toplar (buyuk kova)
+    public float fillPerParticle = 0.5f / 900f;
 
     Transform water;
     BucketWater info;
@@ -17,6 +19,20 @@ public class BigBucket : MonoBehaviour
         water = transform.Find("Water");
         if (water != null) info = water.GetComponent<BucketWater>();
         Apply();
+    }
+
+    void Start()
+    {
+        if (!collectsParticles) return;
+        float s = transform.lossyScale.y;
+        Vector3 c = transform.position;
+        float half = 0.17f * s;
+        WaterSim.RegisterContainer(this, c, half * 0.86f, half * 1.03f, c.y - half, c.y + half - 0.03f);
+    }
+
+    public void AddParticle()
+    {
+        SetFill(fill + fillPerParticle);
     }
 
     public void SetFill(float f)

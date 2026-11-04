@@ -18,10 +18,17 @@ public class WaterWell : MonoBehaviour
     public float logRadius = 0.175f;
     public float haulAmount = 0.5f;  // bir cekis buyuk kovanin ne kadarini doldurur
 
+    public float rimY;
+    public const int ParticlesPerHaul = 900;
     bool busy;
     Vector3 bucketXZ;
     float bucketHalfH;
     float baseLen;
+
+    void Start()
+    {
+        WaterSim.RegisterWell(transform.position, 0.6f, 0.9f, waterY, rimY);
+    }
 
     void Awake()
     {
@@ -53,10 +60,12 @@ public class WaterWell : MonoBehaviour
     void UpdateRope(float y)
     {
         if (rope == null) return;
-        float top = anchor.y;
-        float bottom = y + bucketHalfH;
-        float len = Mathf.Max(0.02f, top - bottom);
-        rope.position = new Vector3(bucketXZ.x, (top + bottom) * 0.5f, bucketXZ.z);
+        Vector3 top = anchor;
+        Vector3 bottom = bucket.position + Vector3.up * bucketHalfH;
+        Vector3 d = bottom - top;
+        float len = Mathf.Max(0.02f, d.magnitude);
+        rope.position = (top + bottom) * 0.5f;
+        rope.rotation = Quaternion.FromToRotation(Vector3.up, d.normalized);
         rope.localScale = new Vector3(rope.localScale.x, len * 0.5f, rope.localScale.z);
     }
 
@@ -116,8 +125,12 @@ public class WaterWell : MonoBehaviour
 
         for (float t = 0f; t < dur; t += Time.deltaTime)
         {
-            float tilt = maxTilt * Smooth(Mathf.Clamp01(t / (dur * 0.55f)));
+            float e = Smooth(Mathf.Clamp01(t / (dur * 0.55f)));
+            float tilt = maxTilt * e;
             bucket.rotation = Quaternion.AngleAxis(tilt, axis);
+            // Kova ipin ucunda buyuk kovaya dogru disari sallanir ve hafif kalkar
+            bucket.position = new Vector3(bucketXZ.x, topY, bucketXZ.z) + tipDir * (0.42f * e) + Vector3.up * (0.1f * e);
+            UpdateRope(topY);
 
             float flow = Mathf.InverseLerp(50f, maxTilt, tilt);
             if (flow > 0f && bucketFill.Fill > 0.005f)
@@ -126,34 +139,38 @@ public class WaterWell : MonoBehaviour
                 float f = Mathf.Max(0f, bucketFill.Fill - drain);
                 poured += (bucketFill.Fill - f);
                 bucketFill.SetFill(f);
-                big.SetFill(Mathf.Min(1f, bigStart + poured * haulAmount));
 
                 Vector3 mouth = bucket.position + bucket.up * mouthDist;
-                emitCarry += 320f * flow * Time.deltaTime;
+                emitCarry += (ParticlesPerHaul / (dur * 0.5f)) * flow * Time.deltaTime;
                 int n = Mathf.FloorToInt(emitCarry);
                 emitCarry -= n;
                 for (int i = 0; i < n; i++)
                 {
-                    Vector2 o = Random.insideUnitCircle * 0.14f;
+                    Vector2 o = Random.insideUnitCircle * 0.1f;
                     Vector3 land = center + new Vector3(o.x, 0f, o.y);
-                    float tt = 0.3f + Random.Range(0f, 0.06f);
+                    float tt = 0.32f + Random.Range(0f, 0.05f);
                     Vector3 v = (land - mouth) / tt - 0.5f * Physics.gravity * tt;
-                    WaterDrop.Emit(mouth + Random.insideUnitSphere * 0.02f, v, false, center.y - 0.03f);
+                    Vector3 p0 = mouth + bucket.right * Random.Range(-0.12f, 0.12f) + Random.insideUnitSphere * 0.04f;
+                    WaterSim.Emit(p0 + v * (Time.deltaTime * Random.value), v);
                 }
             }
             yield return null;
         }
         bucketFill.SetFill(0f);
-        big.SetFill(Mathf.Min(1f, bigStart + haul));
         if (SfxPlayer.I != null) SfxPlayer.Play(SfxPlayer.I.waterPour, center, 0.8f);
 
-        // Duzel
+        // Duzel ve geri sallan
         Quaternion from = bucket.rotation;
-        for (float t = 0f; t < 0.5f; t += Time.deltaTime)
+        Vector3 fromPos = bucket.position;
+        for (float t = 0f; t < 0.6f; t += Time.deltaTime)
         {
-            bucket.rotation = Quaternion.Slerp(from, Quaternion.identity, Smooth(t / 0.5f));
+            float k = Smooth(t / 0.6f);
+            bucket.rotation = Quaternion.Slerp(from, Quaternion.identity, k);
+            bucket.position = Vector3.Lerp(fromPos, new Vector3(bucketXZ.x, topY, bucketXZ.z), k);
+            UpdateRope(topY);
             yield return null;
         }
         bucket.rotation = Quaternion.identity;
+        SetBucketY(topY);
     }
 }
