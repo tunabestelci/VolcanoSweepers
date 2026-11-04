@@ -51,18 +51,14 @@ public class WaterDrop : MonoBehaviour
         bool hit = false;
         if (field != null)
         {
-            if (field.InsidePool(next))
+            if (next.y <= field.HeightAt(next))
             {
-                if (next.y <= field.HeightAt(next))
+                if (field.IsLava(next))
                 {
                     field.AddCrust(next, 0.34f, 0.2f);
                     if (Random.value < 0.05f) Fx.Steam(next, 0.35f);
-                    hit = true;
                 }
-            }
-            else if (next.y <= field.BaseY)
-            {
-                if (Random.value < 0.15f) Fx.Splash(next);
+                else if (Random.value < 0.15f) Fx.Splash(next);
                 hit = true;
             }
         }

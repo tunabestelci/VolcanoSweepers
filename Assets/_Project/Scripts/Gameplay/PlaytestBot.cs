@@ -65,33 +65,41 @@ public class PlaytestBot : MonoBehaviour
     IEnumerator Run()
     {
         Debug.Log("[BOT] basladi");
+        float R = field.poolRadius;
+        var spawn = player.transform.position;
         yield return new WaitForSeconds(2.5f);
-        player.LookAt(Surface(0f, -2f));
+        player.LookAt(Surface(0f, spawn.z + 12f));
         yield return Shot("01_start");
 
-        // Sag kova: havuzdan doldur
-        player.LookAt(new Vector3(0f, 0.07f, -16f));
+        // Sag kova: istasyondaki su haznesinden doldur
+        var trough = GameObject.Find("TroughWater");
+        Vector3 water = trough != null ? trough.transform.position : spawn;
+        player.Teleport(new Vector3(water.x - 1.5f, spawn.y, water.z + 2.2f));
+        yield return new WaitForSeconds(0.3f);
+        player.LookAt(water);
         yield return new WaitForSeconds(0.3f);
         tools.DoBucket(false);
         yield return new WaitForSeconds(0.8f);
         yield return Shot("02_fill");
         yield return WaitIdle();
 
-        // Havuz kenarina yaklas, sonra lava dok (basili tutma simulasyonu)
-        player.Teleport(new Vector3(0f, 0f, -8f));
-        yield return new WaitForSeconds(0.5f);
-        Vector3 target = Surface(0f, -4.5f);
+        // Lav gol kenarina yuru, sonra dok (basili tutma simulasyonu)
+        Vector3 shore = new Vector3(0f, 0f, -(R - 9f));
+        shore.y = field.HeightAt(shore);
+        player.Teleport(shore);
+        yield return new WaitForSeconds(0.6f);
+        Vector3 target = Surface(0f, -(R - 14f));
         player.LookAt(target);
+        yield return Shot("03_shore");
         tools.botHoldPour = true;
         tools.DoBucket(false);
         yield return new WaitForSeconds(1.4f);
-        yield return Shot("03_pour");
+        yield return Shot("04_pour");
         yield return new WaitForSeconds(1.0f);
-        yield return Shot("04_pour2");
         yield return WaitIdle();
         tools.botHoldPour = false;
         yield return new WaitForSeconds(0.8f);
-        Debug.Log($"[BOT] kabuk: {field.CrustAt(target):F2} drops={WaterDrop.Alive}");
+        Debug.Log($"[BOT] kabuk: {field.CrustAt(target):F2}");
         yield return Shot("05_crust");
 
         // Kazma
@@ -106,7 +114,7 @@ public class PlaytestBot : MonoBehaviour
             yield return new WaitForSeconds(0.1f);
         }
         yield return new WaitForSeconds(1.2f);
-        Debug.Log($"[BOT] kazi: dig={field.DigAt(target):F2} kabuk={field.CrustAt(target):F2} cekirdek={LithicCoreItem.All.Count} ilerleme={field.Progress:P1}");
+        Debug.Log($"[BOT] kazi: dig={field.DigAt(target):F2} kabuk={field.CrustAt(target):F2} cekirdek={LithicCoreItem.All.Count}");
         yield return Shot("07_dug");
 
         // Cekirdek al
@@ -128,6 +136,12 @@ public class PlaytestBot : MonoBehaviour
         player.LookAt(player.transform.position + new Vector3(0f, -2f, 1f));
         yield return new WaitForSeconds(0.4f);
         yield return Shot("09_buckets_down");
+
+        // Istasyona bak
+        player.Teleport(spawn + new Vector3(0f, 0f, 3f));
+        player.LookAt(new Vector3(spawn.x + 3f, spawn.y + 1.5f, spawn.z - 6f));
+        yield return new WaitForSeconds(0.4f);
+        yield return Shot("10_station");
 
         Debug.Log($"[BOT] bitti. ilerleme={field.Progress:P1}");
 #if UNITY_EDITOR

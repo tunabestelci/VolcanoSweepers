@@ -38,11 +38,9 @@ public class PlayerController : MonoBehaviour
     float GroundHeight(Vector3 p)
     {
         var field = LavaField.I;
-        if (field != null && field.InsidePool(p)) return field.HeightAt(p);
-        if (field != null && Vector2.Distance(new Vector2(p.x, p.z), new Vector2(field.transform.position.x, field.transform.position.z)) < 24f)
-            return field.BaseY;
+        if (field != null) return field.HeightAt(p);
         if (terrain != null) return terrain.SampleHeight(p) + terrain.transform.position.y;
-        return field != null ? field.BaseY : 0f;
+        return 0f;
     }
 
     public void LookAt(Vector3 point)
@@ -112,9 +110,9 @@ public class PlayerController : MonoBehaviour
         // Alandan cok uzaklasma
         Vector3 flat = transform.position - spawn;
         flat.y = 0f;
-        if (flat.magnitude > 30f)
+        if (flat.magnitude > 140f)
         {
-            Vector3 back = -flat.normalized * (flat.magnitude - 30f);
+            Vector3 back = -flat.normalized * (flat.magnitude - 140f);
             cc.Move(back);
         }
 

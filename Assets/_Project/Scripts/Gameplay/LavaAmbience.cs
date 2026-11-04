@@ -11,6 +11,16 @@ public class LavaAmbience : MonoBehaviour
     public float bubblesPerSecond = 7f;
     public float spitEverySeconds = 3.5f;
 
+    Transform focusT;
+    Vector3 Focus
+    {
+        get
+        {
+            if (focusT == null && Camera.main != null) focusT = Camera.main.transform;
+            return focusT != null ? focusT.position : Vector3.zero;
+        }
+    }
+
     float bubbleTimer;
     float spitTimer;
     float baseIntensity;
@@ -37,12 +47,17 @@ public class LavaAmbience : MonoBehaviour
         }
 
         if (glowLight != null)
+        {
+            var f = Focus;
+            glowLight.transform.position = new Vector3(f.x, (field != null ? field.BaseY : 0f) - 0.6f, f.z);
+        }
+        if (glowLight != null)
             glowLight.intensity = baseIntensity * (1f + 0.15f * Mathf.Sin(Time.time * 3.1f) + 0.1f * Mathf.Sin(Time.time * 7.7f));
     }
 
     void SpawnBubble()
     {
-        if (field == null || !field.RandomLavaPoint(out var p)) return;
+        if (field == null || !field.RandomLavaPoint(Focus, 16f, out var p)) return;
         StartCoroutine(BubbleRoutine(p));
     }
 
@@ -72,7 +87,7 @@ public class LavaAmbience : MonoBehaviour
     void SpawnSpit()
     {
         if (magmaBallPrefab == null || field == null) return;
-        if (!field.RandomLavaPoint(out var from) || !field.RandomLavaPoint(out var to)) return;
+        if (!field.RandomLavaPoint(Focus, 14f, out var from) || !field.RandomLavaPoint(Focus, 14f, out var to)) return;
         StartCoroutine(SpitRoutine(from, to));
     }
 

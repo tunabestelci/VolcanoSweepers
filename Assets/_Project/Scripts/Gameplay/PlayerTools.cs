@@ -366,7 +366,7 @@ public class PlayerTools : MonoBehaviour
         var ray = new Ray(cam.transform.position, cam.transform.forward);
         if (field != null && field.Raycast(ray, reach, out var p))
         {
-            if (!field.InsidePool(p, 0.9f)) { SetHint("Burada kazacak bir sey yok"); }
+            if (!field.IsLava(p, 1.5f)) { SetHint("Burada kazacak bir sey yok"); }
             else
             {
                 switch (field.Mine(p))

@@ -74,7 +74,7 @@ public static class VolcanoSweepersSetup
 
     class MatSet
     {
-        public Material lava, obsidian, cleared, bubble, bucket, pickaxe, core, magma, water, rock, particle, pondRim, waterDrop, lavaCrust;
+        public Material lava, obsidian, cleared, bubble, bucket, pickaxe, core, magma, water, rock, particle, pondRim, waterDrop, lavaCrust, metal, wood, concrete;
     }
 
     static Texture2D Tex(string path) => AssetDatabase.LoadAssetAtPath<Texture2D>(path);
@@ -131,6 +131,9 @@ public static class VolcanoSweepersSetup
         m.obsidian = Lit("Obsidian", Color.white, T + "ObsidianTile/Obsidian_basecolor.png", T + "ObsidianTile/Obsidian_normal.png",
             T + "ObsidianTile/Obsidian_MetalSmooth.png", smooth: 1f);
         m.cleared = Lit("ClearedFloor", new Color(0.09f, 0.08f, 0.08f), smooth: 0.15f);
+        m.metal = Lit("StationMetal", new Color(0.32f, 0.35f, 0.4f), smooth: 0.65f, metal: 0.85f);
+        m.wood = Lit("StationWood", new Color(0.33f, 0.2f, 0.11f), smooth: 0.15f);
+        m.concrete = Lit("StationConcrete", new Color(0.3f, 0.28f, 0.27f), smooth: 0.1f);
         m.rock = Lit("Rock", new Color(0.13f, 0.1f, 0.09f), smooth: 0.1f);
         m.pondRim = Lit("PondRim", new Color(0.2f, 0.17f, 0.16f), smooth: 0.15f);
         m.water = Lit("Water", new Color(0.1f, 0.45f, 0.85f), smooth: 0.95f);
@@ -314,11 +317,11 @@ public static class VolcanoSweepersSetup
 
         // Atmosfer
         RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
-        RenderSettings.ambientLight = new Color(0.22f, 0.12f, 0.1f);
+        RenderSettings.ambientLight = new Color(0.36f, 0.22f, 0.18f);
         RenderSettings.fog = true;
         RenderSettings.fogMode = FogMode.ExponentialSquared;
         RenderSettings.fogColor = new Color(0.16f, 0.06f, 0.04f);
-        RenderSettings.fogDensity = 0.006f;
+        RenderSettings.fogDensity = 0.0035f;
 
         var sunGo = new GameObject("Sun");
         var sun = sunGo.AddComponent<Light>();
@@ -327,47 +330,31 @@ public static class VolcanoSweepersSetup
         sun.intensity = 0.7f;
         sunGo.transform.rotation = Quaternion.Euler(55f, -30f, 0f);
 
-        // Volkan arazisi (kullanicinin yukseklik haritasi)
+        // Volkan arazisi (kullanicinin yukseklik haritasi) + ekipman istasyonu
         var env = new GameObject("Environment").transform;
-        BuildTerrain(m, env);
+        Vector3 pad = BuildTerrain(m, env);
+        BuildStation(m, pad);
 
-        // Havuz
-        var pond = new GameObject("Pond");
-        pond.transform.position = new Vector3(0f, 0f, -15f);
-        var rim = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-        rim.name = "PondRim";
-        Object.DestroyImmediate(rim.GetComponent<Collider>());
-        rim.transform.SetParent(pond.transform, false);
-        rim.transform.localScale = new Vector3(5.6f, 0.06f, 5.6f);
-        rim.transform.localPosition = new Vector3(0f, 0.03f, 0f);
-        rim.GetComponent<MeshRenderer>().sharedMaterial = m.pondRim;
-        var pw = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-        pw.name = "PondWater";
-        pw.transform.SetParent(pond.transform, false);
-        pw.transform.localScale = new Vector3(4.8f, 0.04f, 4.8f);
-        pw.transform.localPosition = new Vector3(0f, 0.07f, 0f);
-        pw.GetComponent<MeshRenderer>().sharedMaterial = m.water;
-        pw.GetComponent<Collider>().isTrigger = true;
-        pw.AddComponent<WaterSource>();
-
-        // Lav havuzu (surekli yuzey, kare yok)
+        // Krateri dolduran lav golu (surekli yuzey, kare yok)
         var lavaGo = new GameObject("LavaField");
-        lavaGo.transform.position = new Vector3(0f, -0.04f, 0f);
+        lavaGo.transform.position = Vector3.zero;
         lavaGo.AddComponent<MeshFilter>();
         lavaGo.AddComponent<MeshRenderer>();
         var field = lavaGo.AddComponent<LavaField>();
         field.material = m.lavaCrust;
-        field.size = 20f;
-        field.poolRadius = 9f;
-        field.digDepth = 3f;
+        field.size = 116f;
+        field.res = 512;
+        field.meshRes = 384;
+        field.poolRadius = LakeRadius + 5f;
+        field.digDepth = LavaAboveFloor - 1f;
 
         var glowGo = new GameObject("LavaGlow");
-        glowGo.transform.position = new Vector3(0f, 2.5f, 0f);
+        glowGo.transform.position = new Vector3(0f, 3f, 0f);
         var glow = glowGo.AddComponent<Light>();
         glow.type = LightType.Point;
         glow.color = new Color(1f, 0.45f, 0.12f);
-        glow.range = 26f;
-        glow.intensity = 60f;
+        glow.range = 22f;
+        glow.intensity = 4f;
 
         var amb = lavaGo.AddComponent<LavaAmbience>();
         amb.field = field;
@@ -393,7 +380,7 @@ public static class VolcanoSweepersSetup
         // Oyuncu
         var player = new GameObject("Player");
         player.tag = "Player";
-        player.transform.position = new Vector3(0f, 0.05f, -12f);
+        player.transform.position = pad + new Vector3(0f, 0.05f, 3f);
         var cc = player.AddComponent<CharacterController>();
         cc.height = 1.8f;
         cc.radius = 0.35f;
@@ -407,7 +394,7 @@ public static class VolcanoSweepersSetup
         var cam = camGo.AddComponent<Camera>();
         cam.fieldOfView = 70f;
         cam.nearClipPlane = 0.05f;
-        cam.farClipPlane = 150f;
+        cam.farClipPlane = 700f;
         cam.clearFlags = CameraClearFlags.SolidColor;
         cam.backgroundColor = new Color(0.16f, 0.06f, 0.04f);
         camGo.AddComponent<AudioListener>();
@@ -466,8 +453,12 @@ public static class VolcanoSweepersSetup
     // ---------- Arazi ----------
 
     const string TerrainDir = Art + "/Terrain";
+    public const float LakeRadius = 50f;       // lav golunun ici (arazi bunun disinda yukselir)
+    public const float LavaAboveFloor = 13f;   // lav seviyesi krater tabanindan ne kadar yuksek
 
-    static void BuildTerrain(MatSet m, Transform parent)
+    // Kullanicinin yukseklik haritasindan arazi kurar; krater lavla dolacak sekilde dunya y=0 lav seviyesidir.
+    // Donus: dagin icinde, kraterin disindaki duz istasyon platformunun merkezi.
+    static Vector3 BuildTerrain(MatSet m, Transform parent)
     {
         // RAW: 1009x1009, 16 bit, little-endian
         const int src = 1009;
@@ -487,10 +478,11 @@ public static class VolcanoSweepersSetup
         const float cxPx = 540f, cyPx = 520f;           // krater merkezi (resim koordinati, ustten)
         float cyT = (src - 1) - cyPx;                   // arazide (alttan) satir; doku ile hizali olsun diye satirlar cevrilir
         float floorH = h[(int)cyPx * src + (int)cxPx];
-        const float digDepth = 3f;                      // LavaField.digDepth ile ayni
-        float pitDelta = (digDepth + 0.8f) / heightRange;
-
+        float levelNorm = floorH + LavaAboveFloor / heightRange;   // lav seviyesi
+        float padH = levelNorm + 1.5f / heightRange;               // platform yuksekligi
+        float padDist = LakeRadius + 12f;                          // platform merkezi (guneyde, -Z)
         float mPerPx = worldSize / (src - 1);
+
         var data = new float[res, res];
         for (int y = 0; y < res; y++)
             for (int x = 0; x < res; x++)
@@ -502,16 +494,21 @@ public static class VolcanoSweepersSetup
                 float v = Mathf.Lerp(
                     Mathf.Lerp(h[y0 * src + x0], h[y0 * src + x0 + 1], tx),
                     Mathf.Lerp(h[(y0 + 1) * src + x0], h[(y0 + 1) * src + x0 + 1], tx), ty);
-                // Arena: merkezi duzlestir, 26 m'ye kadar tam duz, 44 m'de dogal arazi
                 float dx = (fx - cxPx) * mPerPx, dz = (fy - cyT) * mPerPx;
                 float dist = Mathf.Sqrt(dx * dx + dz * dz);
-                float blend = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(26f, 44f, dist));
-                float hh = Mathf.Lerp(floorH, v, blend);
-                // Lav havuzu icin cukur (LavaField.PoolRadiusAt ile ayni sekil)
-                float th = Mathf.Atan2(dz, dx);
-                float poolR = 9f * (1f + 0.06f * Mathf.Sin(3f * th + 1f) + 0.04f * Mathf.Sin(5f * th + 2f));
-                float pit = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(poolR + 0.1f, poolR + 1.4f, dist));
-                data[y, x] = hh - pit * pitDelta;
+
+                // Lav golunun etrafina, gol disina tasmayi onleyen sedde
+                float ring = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(LakeRadius - 5f, LakeRadius - 1f, dist));
+                float berm = levelNorm + (0.6f + 6f * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(LakeRadius, LakeRadius + 20f, dist))) / heightRange;
+                v = Mathf.Lerp(v, Mathf.Max(v, berm), ring);
+
+                // Istasyon platformu: duz, gole yakin
+                float pdx = dx, pdz = dz + padDist;
+                float pd = Mathf.Sqrt(pdx * pdx + pdz * pdz);
+                float pw = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(11f, 19f, pd));
+                v = Mathf.Lerp(v, padH, pw);
+
+                data[y, x] = v;
             }
 
         var td = new TerrainData { heightmapResolution = res };
@@ -534,10 +531,89 @@ public static class VolcanoSweepersSetup
         var go = Terrain.CreateTerrainGameObject(td);
         go.name = "VolcanoTerrain";
         go.transform.SetParent(parent, false);
-        // Krater merkezi dunya merkezine; zemin yuksekligi y=0
+        // Krater merkezi dunya merkezine; lav seviyesi y=0
         float cx = cxPx * mPerPx, cz = cyT * mPerPx;
-        go.transform.position = new Vector3(-cx, -floorH * heightRange, -cz);
+        go.transform.position = new Vector3(-cx, -levelNorm * heightRange, -cz);
         go.GetComponent<Terrain>().drawInstanced = true;
+
+        return new Vector3(0f, 1.5f, -padDist);
+    }
+
+    // ---------- Ekipman istasyonu ----------
+
+    static GameObject Prim(PrimitiveType type, string name, Transform parent, Vector3 pos, Vector3 scale, Material mat, bool collider = false)
+    {
+        var go = GameObject.CreatePrimitive(type);
+        go.name = name;
+        go.transform.SetParent(parent, false);
+        go.transform.position = pos;
+        go.transform.localScale = scale;
+        go.GetComponent<MeshRenderer>().sharedMaterial = mat;
+        if (!collider) Object.DestroyImmediate(go.GetComponent<Collider>());
+        return go;
+    }
+
+    static void BuildStation(MatSet m, Vector3 c)
+    {
+        var root = new GameObject("EquipmentStation").transform;
+        root.position = c;
+
+        // Beton platform
+        Prim(PrimitiveType.Cylinder, "Slab", root, c + new Vector3(0f, -0.04f, 0f), new Vector3(15f, 0.08f, 15f), m.concrete);
+
+        // Su kazani (yatay silindir + kubbeler) ve ayaklari
+        Vector3 bc = c + new Vector3(5.5f, 2.6f, -4.4f);
+        var boiler = Prim(PrimitiveType.Cylinder, "WaterBoiler", root, bc, new Vector3(2.6f, 3.2f, 2.6f), m.metal, true);
+        boiler.transform.rotation = Quaternion.Euler(0f, 0f, 90f);
+        Prim(PrimitiveType.Sphere, "BoilerCapL", root, bc + new Vector3(-3.2f, 0f, 0f), new Vector3(2.6f, 2.6f, 2.6f), m.metal);
+        Prim(PrimitiveType.Sphere, "BoilerCapR", root, bc + new Vector3(3.2f, 0f, 0f), new Vector3(2.6f, 2.6f, 2.6f), m.metal);
+        for (int i = 0; i < 2; i++)
+            for (int j = 0; j < 2; j++)
+                Prim(PrimitiveType.Cube, "BoilerLeg", root, bc + new Vector3(-2f + i * 4f, -1.7f, -0.9f + j * 1.8f), new Vector3(0.25f, 2.2f, 0.25f), m.metal);
+        // Bantlar
+        for (int i = 0; i < 3; i++)
+        {
+            var band = Prim(PrimitiveType.Cylinder, "BoilerBand", root, bc + new Vector3(-2.4f + i * 2.4f, 0f, 0f), new Vector3(2.72f, 0.12f, 2.72f), m.concrete);
+            band.transform.rotation = Quaternion.Euler(0f, 0f, 90f);
+        }
+        // Dis borular ve musluk
+        Prim(PrimitiveType.Cylinder, "PipeDown", root, c + new Vector3(5.5f, 1.3f, -2.9f), new Vector3(0.22f, 0.9f, 0.22f), m.metal);
+        var spout = Prim(PrimitiveType.Cylinder, "Spout", root, c + new Vector3(5.5f, 0.78f, -2.5f), new Vector3(0.2f, 0.45f, 0.2f), m.metal);
+        spout.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
+        Prim(PrimitiveType.Sphere, "Valve", root, c + new Vector3(5.5f, 1.5f, -3.1f), new Vector3(0.45f, 0.45f, 0.45f), m.wood);
+
+        // Su hazinesi (kovalar buradan dolar)
+        var trough = new GameObject("WaterTrough").transform;
+        trough.SetParent(root, false);
+        trough.position = c + new Vector3(5.5f, 0f, -0.8f);
+        Prim(PrimitiveType.Cylinder, "TroughRim", trough, trough.position + new Vector3(0f, 0.28f, 0f), new Vector3(4.6f, 0.28f, 4.6f), m.concrete);
+        Prim(PrimitiveType.Cylinder, "TroughInner", trough, trough.position + new Vector3(0f, 0.31f, 0f), new Vector3(4.1f, 0.28f, 4.1f), m.pondRim);
+        var tw = Prim(PrimitiveType.Cylinder, "TroughWater", trough, trough.position + new Vector3(0f, 0.5f, 0f), new Vector3(4.0f, 0.06f, 4.0f), m.water, true);
+        tw.GetComponent<Collider>().isTrigger = true;
+        tw.AddComponent<WaterSource>();
+
+        // Sandiklar
+        Prim(PrimitiveType.Cube, "Crate1", root, c + new Vector3(-5f, 0.45f, -1f), new Vector3(1.2f, 0.9f, 1.2f), m.wood, true);
+        Prim(PrimitiveType.Cube, "Crate2", root, c + new Vector3(-6.4f, 0.45f, -1.4f), new Vector3(1.2f, 0.9f, 1.2f), m.wood, true).transform.rotation = Quaternion.Euler(0f, 18f, 0f);
+        Prim(PrimitiveType.Cube, "Crate3", root, c + new Vector3(-5.5f, 1.35f, -1.1f), new Vector3(1.0f, 0.9f, 1.0f), m.wood, true).transform.rotation = Quaternion.Euler(0f, -12f, 0f);
+        // Alet rafi
+        Prim(PrimitiveType.Cube, "RackBeam", root, c + new Vector3(-3f, 1.2f, -5.2f), new Vector3(3.2f, 0.12f, 0.12f), m.wood);
+        Prim(PrimitiveType.Cube, "RackPostL", root, c + new Vector3(-4.5f, 0.6f, -5.2f), new Vector3(0.14f, 1.2f, 0.14f), m.wood);
+        Prim(PrimitiveType.Cube, "RackPostR", root, c + new Vector3(-1.5f, 0.6f, -5.2f), new Vector3(0.14f, 1.2f, 0.14f), m.wood);
+
+        // Lamba diregi (sicak isik)
+        foreach (var off in new[] { new Vector3(-2.5f, 0f, 4.5f), new Vector3(9f, 0f, 2.5f) })
+        {
+            Prim(PrimitiveType.Cylinder, "LampPost", root, c + off + new Vector3(0f, 1.6f, 0f), new Vector3(0.12f, 1.6f, 0.12f), m.metal);
+            var lampGo = new GameObject("LampLight");
+            lampGo.transform.SetParent(root, false);
+            lampGo.transform.position = c + off + new Vector3(0f, 3.4f, 0f);
+            var l = lampGo.AddComponent<Light>();
+            l.type = LightType.Point;
+            l.color = new Color(1f, 0.78f, 0.5f);
+            l.range = 14f;
+            l.intensity = 25f;
+        }
     }
 
     // ---------- Onizleme goruntuleri (model yonu kontrolu) ----------

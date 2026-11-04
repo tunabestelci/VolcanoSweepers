@@ -2,20 +2,22 @@ using UnityEngine;
 
 public enum MineResult { None, Chipped, Broken }
 
-// Surekli (kare kare olmayan) lav havuzu. Iki katmani CPU'da tutar:
+// Kraterin tamamini dolduran surekli lav golu. Iki katmani CPU'da tutar:
 //   crust: lavin ustundeki obsidyen kabugu (0..1)
 //   dig:   asagi dogru kazilmis derinlik (0..1, 1 = ana kayaya ulasildi)
 // Ikisi de bir dokuya yazilir; shader yuzeyi bu dokudan sekillendirir.
+// Lav seviyesi dunya y = transform.position.y; arazi bu seviyenin altinda kalan yerler golu olusturur.
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
 public class LavaField : MonoBehaviour
 {
     public static LavaField I;
 
     public Material material;
-    public int res = 128;
-    public float size = 20f;
-    public float poolRadius = 9f;
-    public float digDepth = 3f;
+    public int res = 512;
+    public int meshRes = 384;
+    public float size = 116f;
+    public float poolRadius = 55f;
+    public float digDepth = 12f;
     public float crustHeight = 0.14f;
     public float digStep = 0.1f;
 
@@ -25,7 +27,10 @@ public class LavaField : MonoBehaviour
     Color32[] pixels;
     bool dirty;
     Material matInstance;
+    Terrain terrain;
     float baseY;
+    float progressCache;
+    float progressTime = -10f;
 
     public float BaseY => baseY;
 
@@ -33,6 +38,7 @@ public class LavaField : MonoBehaviour
     {
         I = this;
         baseY = transform.position.y;
+        terrain = FindFirstObjectByType<Terrain>();
         crust = new float[res * res];
         dig = new float[res * res];
         pixels = new Color32[res * res];
@@ -55,7 +61,7 @@ public class LavaField : MonoBehaviour
 
     Mesh BuildMesh()
     {
-        int n = 192;
+        int n = meshRes;
         var verts = new Vector3[n * n];
         var uvs = new Vector2[n * n];
         for (int y = 0; y < n; y++)
@@ -98,23 +104,10 @@ public class LavaField : MonoBehaviour
 
     // ---------- Koordinat ----------
 
-    // Dunya konumu -> alan icinde 0..res-1 (ondalikli) hucre koordinati
     Vector2 ToGrid(Vector3 world)
     {
         Vector3 l = world - transform.position;
         return new Vector2((l.x / size + 0.5f) * (res - 1), (l.z / size + 0.5f) * (res - 1));
-    }
-
-    public float PoolRadiusAt(float angle)
-    {
-        return poolRadius * (1f + 0.06f * Mathf.Sin(3f * angle + 1f) + 0.04f * Mathf.Sin(5f * angle + 2f));
-    }
-
-    public bool InsidePool(Vector3 world, float shrink = 0f)
-    {
-        Vector3 l = world - transform.position;
-        float r = Mathf.Sqrt(l.x * l.x + l.z * l.z);
-        return r < PoolRadiusAt(Mathf.Atan2(l.z, l.x)) - shrink;
     }
 
     float Sample(float[] a, Vector2 g)
@@ -132,25 +125,45 @@ public class LavaField : MonoBehaviour
     public float CrustAt(Vector3 world) { return Sample(crust, ToGrid(world)); }
     public float DigAt(Vector3 world) { return Sample(dig, ToGrid(world)); }
 
-    // Yuzeyin dunya yuksekligi (havuz disinda zemin seviyesi)
-    public float HeightAt(Vector3 world)
+    public float TerrainHeight(Vector3 world)
     {
-        if (!InsidePool(world)) return baseY;
-        Vector2 g = ToGrid(world);
-        return baseY - Sample(dig, g) * digDepth + CrustShape(Sample(crust, g)) * crustHeight;
+        if (terrain == null) return baseY - 1000f;
+        return terrain.SampleHeight(world) + terrain.transform.position.y;
     }
 
-    // Isini yuzeyle kesistirir (havuzun uzerinde ve etrafinda)
+    float PlanarDist(Vector3 world)
+    {
+        Vector3 l = world - transform.position;
+        return Mathf.Sqrt(l.x * l.x + l.z * l.z);
+    }
+
+    // Burasi lav golunun icinde mi (arazi lav seviyesinin altinda)?
+    public bool IsLava(Vector3 world, float shrink = 0f)
+    {
+        if (PlanarDist(world) > poolRadius - shrink) return false;
+        return TerrainHeight(world) < baseY - 0.15f;
+    }
+
+    // Yuzeyin dunya yuksekligi: lav yuzeyi veya arazi (hangisi yuksekse)
+    public float HeightAt(Vector3 world)
+    {
+        float th = TerrainHeight(world);
+        if (PlanarDist(world) > poolRadius) return th;
+        Vector2 g = ToGrid(world);
+        float surface = baseY - Sample(dig, g) * digDepth + CrustShape(Sample(crust, g)) * crustHeight;
+        return Mathf.Max(th, surface);
+    }
+
+    // Isini yuzeyle kesistirir
     public bool Raycast(Ray ray, float maxDist, out Vector3 hit)
     {
-        float step = 0.06f;
+        float step = 0.08f;
         Vector3 prev = ray.origin;
         for (float d = 0f; d < maxDist; d += step)
         {
             Vector3 p = ray.origin + ray.direction * d;
             if (p.y <= HeightAt(p))
             {
-                // Son adim icinde ince ayar
                 Vector3 a = prev, b = p;
                 for (int i = 0; i < 5; i++)
                 {
@@ -187,7 +200,7 @@ public class LavaField : MonoBehaviour
                 float w = 1f - d / radius;
                 w = w * w * (3f - 2f * w);
                 Vector3 wp = transform.position + new Vector3((x / (float)(res - 1) - 0.5f) * size, 0f, (y / (float)(res - 1) - 0.5f) * size);
-                if (!InsidePool(wp, 0.9f)) continue;
+                if (!IsLava(wp, 1.5f)) continue;
                 brush(y * res + x, w);
             }
         }
@@ -212,7 +225,6 @@ public class LavaField : MonoBehaviour
         Paint(world, radius, (i, w) => crust[i] = Mathf.Max(0f, crust[i] - 0.34f * w));
         if (CrustAt(world) >= 0.3f) return MineResult.Chipped;
 
-        // Kabuk koptu: parcayi tamamen kaldir ve bir kademe asagi kaz
         Paint(world, radius * 1.15f, (i, w) =>
         {
             crust[i] = Mathf.Max(0f, crust[i] - w * 1.2f);
@@ -223,31 +235,35 @@ public class LavaField : MonoBehaviour
 
     // ---------- Durum ----------
 
+    // Kazilan derinligin ortalamasi (0..1); sik hesaplanmasin diye onbellekli
     public float Progress
     {
         get
         {
+            if (Time.unscaledTime - progressTime < 0.3f) return progressCache;
+            progressTime = Time.unscaledTime;
             float sum = 0f; int n = 0;
-            float cell = size / (res - 1);
-            float rr = (poolRadius - 1.5f);
-            for (int y = 0; y < res; y += 2)
-                for (int x = 0; x < res; x += 2)
+            float rr = poolRadius - 6f;
+            for (int y = 0; y < res; y += 4)
+                for (int x = 0; x < res; x += 4)
                 {
                     float wx = (x / (float)(res - 1) - 0.5f) * size, wz = (y / (float)(res - 1) - 0.5f) * size;
                     if (wx * wx + wz * wz > rr * rr) continue;
                     sum += dig[y * res + x]; n++;
                 }
-            return n == 0 ? 0f : sum / n;
+            progressCache = n == 0 ? 0f : sum / n;
+            return progressCache;
         }
     }
 
-    // Kabarcik/damla icin acik lav noktasi
-    public bool RandomLavaPoint(out Vector3 p)
+    // Kabarcik/damla icin oyuncunun yakinindan acik lav noktasi
+    public bool RandomLavaPoint(Vector3 around, float radius, out Vector3 p)
     {
-        for (int i = 0; i < 16; i++)
+        for (int i = 0; i < 20; i++)
         {
-            Vector2 o = Random.insideUnitCircle * (poolRadius - 1.2f);
-            Vector3 w = transform.position + new Vector3(o.x, 0f, o.y);
+            Vector2 o = Random.insideUnitCircle * radius;
+            Vector3 w = new Vector3(around.x + o.x, baseY, around.z + o.y);
+            if (!IsLava(w, 2f)) continue;
             Vector2 g = ToGrid(w);
             if (Sample(crust, g) < 0.3f && Sample(dig, g) < 0.9f)
             {

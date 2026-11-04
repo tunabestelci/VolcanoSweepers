@@ -100,9 +100,7 @@ Shader "VolcanoSweepers/LavaCrust"
                 // Duzensiz havuz kenari
                 float2 local = (IN.uv - 0.5) * _FieldSize;
                 float r = length(local);
-                float th = atan2(local.y, local.x);
-                float R = _PoolRadius * (1.0 + 0.06 * sin(3.0 * th + 1.0) + 0.04 * sin(5.0 * th + 2.0));
-                clip(R - r);
+                clip(_PoolRadius - r);
 
                 float2 meters = IN.uv * _FieldSize;
                 float4 m = SAMPLE_TEXTURE2D(_Mask, sampler_Mask, IN.uv);
