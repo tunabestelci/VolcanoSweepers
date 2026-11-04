@@ -173,7 +173,7 @@ public class PlayerTools : MonoBehaviour
         }
         else
         {
-            if (mouse.leftButton.wasPressedThisFrame && !right.busy) StartCoroutine(SwingPickaxe());
+            if (mouse.leftButton.isPressed && !right.busy && Time.time >= nextSwing) StartCoroutine(SwingPickaxe());
         }
 
         Apply(left);
@@ -285,8 +285,10 @@ public class PlayerTools : MonoBehaviour
         h.busy = false;
     }
 
-    const float DropsPerBucket = 520f;
+    const float DropsPerBucket = 1100f;
     public bool botHoldPour;   // test botu icin
+    float nextSwing;           // basili tutarken vuruslar arasi kisa bekleme
+    const float SwingPause = 0.12f;
 
     // Kovanin egimine bagli akis: yeterince egilince su damlalari firlar, fizik kurallarina gore duser
     IEnumerator PourRoutine(Hand h)
@@ -320,14 +322,14 @@ public class PlayerTools : MonoBehaviour
             {
                 if (!AimPoint(out var target, out _)) target = h.root.position + cam.transform.forward * 3f;
                 Vector3 mouth = h.item != null ? h.item.transform.position + h.item.transform.up * 0.16f : h.root.position;
-                emitCarry += (40f + 260f * flow) * Time.deltaTime;
+                emitCarry += (90f + 480f * flow) * Time.deltaTime;
                 int n = Mathf.FloorToInt(emitCarry);
                 emitCarry -= n;
                 for (int i = 0; i < n; i++)
                 {
                     float t = Mathf.Clamp(0.35f + Vector3.Distance(mouth, target) * 0.09f, 0.35f, 0.9f);
                     Vector3 v = (target - mouth) / t - 0.5f * Physics.gravity * t;
-                    v += Random.insideUnitSphere * 0.28f;
+                    v += Random.insideUnitSphere * 0.14f;
                     Vector3 spawn = mouth + Random.insideUnitSphere * 0.03f;
                     WaterDrop.Emit(spawn, v);
                     h.fill = Mathf.Max(0f, h.fill - 1f / DropsPerBucket);
@@ -390,6 +392,7 @@ public class PlayerTools : MonoBehaviour
             }
         }
         yield return Tween(right, hitPos, Vector3.zero, hitEul, Vector3.zero, 0.3f);
+        nextSwing = Time.time + SwingPause;
         right.busy = false;
     }
 

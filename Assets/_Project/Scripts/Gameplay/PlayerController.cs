@@ -8,6 +8,7 @@ public class PlayerController : MonoBehaviour
     public float walkSpeed = 3.6f;
     public float sprintSpeed = 5.8f;
     public float mouseSensitivity = 0.1f;
+    public float jumpSpeed = 7f;
 
     CharacterController cc;
     float pitch;
@@ -95,7 +96,13 @@ public class PlayerController : MonoBehaviour
         // Dikey hareket: lav yuzeyini (kazildikca alcalir) veya araziyi takip et
         float ground = GroundHeight(transform.position);
         float y = transform.position.y;
-        if (y > ground + 0.02f)
+        bool grounded = y <= ground + 0.05f && verticalVel <= 0.01f;
+        if (grounded && kb.spaceKey.wasPressedThisFrame)
+        {
+            verticalVel = jumpSpeed;
+            grounded = false;
+        }
+        if (!grounded)
         {
             verticalVel -= 20f * Time.deltaTime;
             move.y = verticalVel;

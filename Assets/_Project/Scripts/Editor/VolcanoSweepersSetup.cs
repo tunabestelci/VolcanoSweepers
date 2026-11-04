@@ -48,6 +48,8 @@ public static class VolcanoSweepersSetup
             Art + "/Textures/LithicCore/LithicCore_Normal.png",
             Art + "/Textures/ObsidianTile/Obsidian_normal.png",
             Art + "/Terrain/Volcano_Normal.png",
+            Art + "/Textures/Water/Water_TileNormal.png",
+            Art + "/Textures/Water/Water_BaseNormal.png",
         };
         string[] linear =
         {
@@ -74,7 +76,7 @@ public static class VolcanoSweepersSetup
 
     class MatSet
     {
-        public Material lava, obsidian, cleared, bubble, bucket, pickaxe, core, magma, water, rock, particle, pondRim, waterDrop, lavaCrust, metal, wood, concrete;
+        public Material lava, obsidian, cleared, bubble, bucket, pickaxe, core, magma, water, rock, particle, pondRim, waterDrop, lavaCrust, metal, wood, concrete, waterTrail;
     }
 
     static Texture2D Tex(string path) => AssetDatabase.LoadAssetAtPath<Texture2D>(path);
@@ -119,6 +121,70 @@ public static class VolcanoSweepersSetup
         return mat;
     }
 
+    static Material TransparentWater(string name, string baseTex, string normalTex, Color color, Vector2 tiling)
+    {
+        string path = $"{Mats}/{name}.mat";
+        var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+        if (mat == null)
+        {
+            mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+            AssetDatabase.CreateAsset(mat, path);
+        }
+        mat.shader = Shader.Find("Universal Render Pipeline/Lit");
+        mat.SetTexture("_BaseMap", Tex(baseTex));
+        mat.SetTextureScale("_BaseMap", tiling);
+        if (normalTex != null)
+        {
+            mat.SetTexture("_BumpMap", Tex(normalTex));
+            mat.EnableKeyword("_NORMALMAP");
+            mat.SetFloat("_BumpScale", 1.2f);
+        }
+        else
+        {
+            mat.SetTexture("_BumpMap", null);
+            mat.DisableKeyword("_NORMALMAP");
+        }
+        mat.SetColor("_BaseColor", color);
+        mat.SetFloat("_Smoothness", 0.4f);
+        mat.SetFloat("_Metallic", 0f);
+        mat.SetFloat("_EnvironmentReflections", 0f);
+        mat.EnableKeyword("_ENVIRONMENTREFLECTIONS_OFF");
+        mat.SetFloat("_Surface", 1f);
+        mat.SetFloat("_Blend", 0f);
+        mat.SetFloat("_SrcBlend", 5f);
+        mat.SetFloat("_DstBlend", 10f);
+        mat.SetFloat("_ZWrite", 0f);
+        mat.SetOverrideTag("RenderType", "Transparent");
+        mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+        mat.renderQueue = 3000;
+        EditorUtility.SetDirty(mat);
+        return mat;
+    }
+
+    static Material UnlitTransparent(string name, string baseTex, Color color)
+    {
+        string path = $"{Mats}/{name}.mat";
+        var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+        if (mat == null)
+        {
+            mat = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
+            AssetDatabase.CreateAsset(mat, path);
+        }
+        mat.shader = Shader.Find("Universal Render Pipeline/Unlit");
+        mat.SetTexture("_BaseMap", Tex(baseTex));
+        mat.SetColor("_BaseColor", color);
+        mat.SetFloat("_Surface", 1f);
+        mat.SetFloat("_Blend", 0f);
+        mat.SetFloat("_SrcBlend", 5f);
+        mat.SetFloat("_DstBlend", 10f);
+        mat.SetFloat("_ZWrite", 0f);
+        mat.SetOverrideTag("RenderType", "Transparent");
+        mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+        mat.renderQueue = 3000;
+        EditorUtility.SetDirty(mat);
+        return mat;
+    }
+
     static MatSet BuildMaterials()
     {
         var m = new MatSet();
@@ -136,7 +202,13 @@ public static class VolcanoSweepersSetup
         m.concrete = Lit("StationConcrete", new Color(0.3f, 0.28f, 0.27f), smooth: 0.1f);
         m.rock = Lit("Rock", new Color(0.13f, 0.1f, 0.09f), smooth: 0.1f);
         m.pondRim = Lit("PondRim", new Color(0.2f, 0.17f, 0.16f), smooth: 0.15f);
-        m.water = Lit("Water", new Color(0.1f, 0.45f, 0.85f), smooth: 0.95f);
+        m.water = Lit("Water", new Color(0.3f, 0.6f, 0.85f), T + "Water/Water_Tile.png", T + "Water/Water_TileNormal.png",
+            smooth: 0.9f);
+        m.water.SetFloat("_EnvironmentReflections", 0f);
+        m.water.EnableKeyword("_ENVIRONMENTREFLECTIONS_OFF");
+        m.water.SetTextureScale("_BaseMap", new Vector2(2f, 2f));
+        m.water.SetTextureScale("_BumpMap", new Vector2(2f, 2f));
+        m.water.SetFloat("_BumpScale", 1.4f);
         m.bucket = Lit("Bucket", Color.white, T + "Bucket/Bucket_Color.png", T + "Bucket/Bucket_Normal.png",
             T + "Bucket/Bucket_MetalSmooth.png", smooth: 1f);
         m.pickaxe = Lit("Pickaxe", Color.white, T + "Pickaxe/Material.001_Base_Color.png", T + "Pickaxe/Material.001_Normal_OpenGL.png",
@@ -160,28 +232,9 @@ public static class VolcanoSweepersSetup
         EditorUtility.SetDirty(lc);
         m.lavaCrust = lc;
 
-        // Su damlasi: seffaf
-        string wdPath = Mats + "/WaterDrop.mat";
-        var wd = AssetDatabase.LoadAssetAtPath<Material>(wdPath);
-        if (wd == null)
-        {
-            wd = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-            AssetDatabase.CreateAsset(wd, wdPath);
-        }
-        wd.SetTexture("_BaseMap", Tex(T + "Water/Water_Base.png"));
-        wd.SetColor("_BaseColor", new Color(0.65f, 0.85f, 1f, 0.6f));
-        wd.SetFloat("_Smoothness", 0.95f);
-        wd.SetFloat("_Metallic", 0f);
-        wd.SetFloat("_Surface", 1f);
-        wd.SetFloat("_Blend", 0f);
-        wd.SetFloat("_SrcBlend", 5f);
-        wd.SetFloat("_DstBlend", 10f);
-        wd.SetFloat("_ZWrite", 0f);
-        wd.SetOverrideTag("RenderType", "Transparent");
-        wd.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
-        wd.renderQueue = 3000;
-        EditorUtility.SetDirty(wd);
-        m.waterDrop = wd;
+        // Su damlasi ve su izi: seffaf, kullanicinin texture'i + normal harita
+        m.waterDrop = TransparentWater("WaterDrop", T + "Water/Water_Base.png", T + "Water/Water_BaseNormal.png", new Color(0.18f, 0.4f, 0.7f, 0.22f), Vector2.one);
+        m.waterTrail = UnlitTransparent("WaterTrail", T + "Water/Water_Tile.png", new Color(0.5f, 0.78f, 1f, 0.1f));
 
         string pPath = Mats + "/Particle.mat";
         var pm = AssetDatabase.LoadAssetAtPath<Material>(pPath);
@@ -282,6 +335,19 @@ public static class VolcanoSweepersSetup
             part.AddComponent<MeshFilter>().sharedMesh = mesh;
             part.AddComponent<MeshRenderer>().sharedMaterial = m.waterDrop;
         }
+        var tr = drop.AddComponent<TrailRenderer>();
+        tr.sharedMaterial = m.waterTrail;
+        tr.time = 0.16f;
+        tr.widthMultiplier = 0.06f;
+        tr.widthCurve = new AnimationCurve(new Keyframe(0f, 1f), new Keyframe(1f, 0.15f));
+        tr.minVertexDistance = 0.04f;
+        tr.alignment = LineAlignment.View;
+        tr.textureMode = LineTextureMode.Stretch;
+        tr.numCapVertices = 3;
+        tr.numCornerVertices = 2;
+        tr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        tr.receiveShadows = false;
+        tr.autodestruct = false;
         ps.waterDrop = Save(drop, "WaterDrop");
         return ps;
     }
@@ -588,9 +654,10 @@ public static class VolcanoSweepersSetup
         trough.position = c + new Vector3(5.5f, 0f, -0.8f);
         Prim(PrimitiveType.Cylinder, "TroughRim", trough, trough.position + new Vector3(0f, 0.28f, 0f), new Vector3(4.6f, 0.28f, 4.6f), m.concrete);
         Prim(PrimitiveType.Cylinder, "TroughInner", trough, trough.position + new Vector3(0f, 0.31f, 0f), new Vector3(4.1f, 0.28f, 4.1f), m.pondRim);
-        var tw = Prim(PrimitiveType.Cylinder, "TroughWater", trough, trough.position + new Vector3(0f, 0.5f, 0f), new Vector3(4.0f, 0.06f, 4.0f), m.water, true);
+        var tw = Prim(PrimitiveType.Cylinder, "TroughWater", trough, trough.position + new Vector3(0f, 0.62f, 0f), new Vector3(3.9f, 0.05f, 3.9f), m.water, true);
         tw.GetComponent<Collider>().isTrigger = true;
         tw.AddComponent<WaterSource>();
+        tw.AddComponent<WaterSurface>();
 
         // Sandiklar
         Prim(PrimitiveType.Cube, "Crate1", root, c + new Vector3(-5f, 0.45f, -1f), new Vector3(1.2f, 0.9f, 1.2f), m.wood, true);
