@@ -17,6 +17,7 @@ public struct WaterObstacle
     public float rIn, rOut, y0, y1;
     public int kind;    // 1: ust acik kap (icine dusen su toplanir), 2: kuyu (delik + tas halka)
     public int id;
+    public float funnel;   // kap agzinin ustunde de su toplanan yukseklik (disari dokulmesin)
 }
 
 public struct WaterSimParams
@@ -219,12 +220,12 @@ public class WaterSim : MonoBehaviour
 
     // ---------------- cisimler ----------------
 
-    public static int RegisterContainer(BigBucket bucket, Vector3 center, float rIn, float rOut, float y0, float y1)
+    public static int RegisterContainer(BigBucket bucket, Vector3 center, float rIn, float rOut, float y0, float y1, float funnel = 0.1f)
     {
         if (I == null || I.P.obsCount >= MaxObs) return -1;
         int id = I.containers.Count;
         I.containers.Add(bucket);
-        I.obs[I.P.obsCount++] = new WaterObstacle { c = center, rIn = rIn, rOut = rOut, y0 = y0, y1 = y1, kind = 1, id = id };
+        I.obs[I.P.obsCount++] = new WaterObstacle { c = center, rIn = rIn, rOut = rOut, y0 = y0, y1 = y1, kind = 1, id = id, funnel = funnel };
         return id;
     }
 
@@ -477,7 +478,7 @@ public class WaterSim : MonoBehaviour
                 float r = math.sqrt(dx * dx + dz * dz);
                 if (o.kind == 1)
                 {
-                    if (p.y < o.y1 && p.y > o.y0 - rad)
+                    if (p.y < o.y1 + o.funnel && p.y > o.y0 - rad)
                     {
                         if (r < o.rIn)
                         {
@@ -485,7 +486,7 @@ public class WaterSim : MonoBehaviour
                             kind[i] = 0;
                             return;
                         }
-                        if (r < o.rOut)
+                        if (r < o.rOut && p.y < o.y1)
                         {
                             float nx = r > 1e-4f ? dx / r : 1f, nz = r > 1e-4f ? dz / r : 0f;
                             p.x = o.c.x + nx * o.rOut;

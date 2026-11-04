@@ -27,7 +27,7 @@ public class BigBucket : MonoBehaviour
         float s = transform.lossyScale.y;
         Vector3 c = transform.position;
         float half = 0.17f * s;
-        WaterSim.RegisterContainer(this, c, half * 0.86f, half * 1.03f, c.y - half, c.y + half - 0.03f);
+        WaterSim.RegisterContainer(this, c, half * 0.93f, half * 1.05f, c.y - half, c.y + half - 0.03f, 0.12f);
     }
 
     public void AddParticle()

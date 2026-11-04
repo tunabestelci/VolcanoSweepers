@@ -293,24 +293,13 @@ public class PlayerTools : MonoBehaviour
         h.busy = false;
     }
 
-    const float DropsPerBucket = 1000f;
-    const float PourReach = 3.6f;      // sacilan suyun en fazla gidecegi mesafe
     public bool botHoldPour;           // test botu icin
     float nextSwing;                   // basili tutarken vuruslar arasi kisa bekleme
     const float SwingPause = 0.12f;
+    const float ParticlesPerBucket = 420f;   // dolu bir kovanin temsil ettigi parcacik sayisi
 
-    // Nisangahin ucundaki nokta: yakin mesafede, lav yuzeyine inmis
-    Vector3 PourTarget()
-    {
-        var ray = new Ray(cam.transform.position, cam.transform.forward);
-        var field = LavaField.I;
-        if (field != null && field.Raycast(ray, PourReach, out var fp)) return fp;
-        Vector3 q = ray.origin + ray.direction * PourReach;
-        if (field != null) q.y = field.HeightAt(q);
-        return q;
-    }
-
-    // Kovanin egimine bagli akis: egilince su, nisangahin etrafina bir kova suyu atar gibi sacilir
+    // Kovanin egimine gore fiziksel dokulme: su seviyesi (dunyada yatay) kovanin dudagindan asinca
+    // Torricelli akisi ile tasar; tasan su parcacik simulasyonuna girer.
     IEnumerator PourRoutine(Hand h)
     {
         h.busy = true;
@@ -319,58 +308,79 @@ public class PlayerTools : MonoBehaviour
 
         yield return Tween(h, Vector3.zero, liftPos, Vector3.zero, startEul, 0.35f);
 
+        var bw = h.item != null ? h.item.GetComponentInChildren<BucketWater>(true) : null;
+        var body = h.item != null ? h.item.transform.Find("WaterBody") : null;
         float tilt = 25f;
-        float maxTilt = 112f;
+        const float maxTilt = 118f;
         float hissTimer = 0f;
         float emitCarry = 0f;
         float elapsed = 0f;
-        while (h.fill > 0.01f && elapsed < 7f)
+        while (h.fill > 0.01f && elapsed < 8f && bw != null && body != null)
         {
             elapsed += Time.deltaTime;
-            // Mouse tusu birakilirsa dokmeyi birak
             var mouse = Mouse.current;
             bool held = mouse != null && (h == right ? mouse.leftButton.isPressed : mouse.rightButton.isPressed);
             if (!held && !botHoldPour) break;
 
-            tilt = Mathf.MoveTowards(tilt, maxTilt, 90f * Time.deltaTime);
+            tilt = Mathf.MoveTowards(tilt, maxTilt, 65f * Time.deltaTime);
             h.animPos = liftPos;
             h.animEuler = new Vector3(tilt, 0f, 0f);
 
-            float flow = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(55f, maxTilt, tilt));
-            if (flow > 0.01f)
+            // --- kova geometrisi (dunya uzayi) ---
+            Transform bt = h.item.transform;
+            float sc = bt.lossyScale.y;
+            float R = body.localScale.x * 0.5f * sc;                       // ic yaricap
+            float H = (bw.fullY - bw.emptyY) * sc;                         // ic yukseklik
+            float vol = Mathf.PI * R * R * H;
+            Vector3 u = bt.up;
+            float levelLocal = Mathf.Lerp(bw.emptyY, bw.fullY, h.fill);
+            float yPlane = bt.TransformPoint(new Vector3(0f, levelLocal, 0f)).y;
+            Vector3 rimC = bt.TransformPoint(new Vector3(0f, bw.fullY, 0f));
+            Vector3 dl = Vector3.down - u * Vector3.Dot(Vector3.down, u);
+            float sinT = dl.magnitude;
+            Vector3 lipDir = sinT > 1e-3f ? dl / sinT : Vector3.forward;
+            Vector3 lip = rimC + lipDir * R;
+            float head = yPlane - lip.y;
+
+            float dFill = 0f;
+            if (head > 0f)
             {
-                Vector3 center = PourTarget();
-                Vector3 mouth = h.item != null ? h.item.transform.position + h.item.transform.up * 0.16f : h.root.position;
-                float dist = Vector2.Distance(new Vector2(mouth.x, mouth.z), new Vector2(center.x, center.z));
-                float spread = Mathf.Clamp(0.35f + dist * 0.2f, 0.4f, 1.0f);
-                emitCarry += (120f + 520f * flow) * Time.deltaTime;
+                float hh = Mathf.Min(head, R);
+                float w = 2f * Mathf.Sqrt(Mathf.Max(0f, 2f * R * hh - hh * hh));
+                float q = 0.4f * w * Mathf.Sqrt(2f * 9.81f) * Mathf.Pow(hh, 1.5f);     // m^3/s (taslama savagi)
+                dFill = q * Time.deltaTime / Mathf.Max(vol, 1e-5f);
+            }
+            // Kova cok egilince kalan su da (taban yukselince) boslasin
+            if (tilt > 85f) dFill += Time.deltaTime * 1.3f * Mathf.InverseLerp(85f, 118f, tilt);
+            dFill = Mathf.Min(dFill, h.fill);
+
+            if (dFill > 0f)
+            {
+                h.fill -= dFill;
+                emitCarry += dFill * ParticlesPerBucket;
                 int n = Mathf.FloorToInt(emitCarry);
                 emitCarry -= n;
-                var field = LavaField.I;
-                Vector3 right3 = cam.transform.right;
+                Vector3 fwd = cam.transform.forward; fwd.y = 0f; fwd = fwd.sqrMagnitude > 1e-4f ? fwd.normalized : Vector3.forward;
+                Vector3 lat = Vector3.Cross(Vector3.up, fwd);
+                float vOut = Mathf.Sqrt(2f * 9.81f * Mathf.Max(head, 0.02f)) * 1.7f + 1.4f;
+                float width = Mathf.Max(0.05f, R * 0.9f);
                 for (int i = 0; i < n; i++)
                 {
-                    // Nisangahin etrafinda: merkeze yogun, kenarlara dogru seyrek
-                    Vector2 o = Random.insideUnitCircle * spread * Mathf.Sqrt(Random.value);
-                    Vector3 land = center + new Vector3(o.x, 0f, o.y);
-                    if (field != null) land.y = field.HeightAt(land);
-                    Vector3 spawn = mouth + right3 * Random.Range(-0.1f, 0.1f) + Random.insideUnitSphere * 0.05f;
-                    float t = Mathf.Clamp(0.34f + dist * 0.07f + Random.Range(-0.05f, 0.08f), 0.3f, 0.75f);
-                    Vector3 v = (land - spawn) / t - 0.5f * Physics.gravity * t;
+                    Vector3 spawn = lip + lat * Random.Range(-width, width) * 0.8f + Random.insideUnitSphere * 0.015f;
+                    Vector3 v = fwd * vOut + Vector3.down * 0.2f + Random.insideUnitSphere * 0.18f;
                     WaterSim.Emit(spawn + v * (Time.deltaTime * Random.value), v);
-                    h.fill = Mathf.Max(0f, h.fill - 1f / DropsPerBucket);
                 }
                 hissTimer -= Time.deltaTime;
                 if (hissTimer <= 0f)
                 {
-                    hissTimer = 0.8f;
-                    SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.waterPour : null, center, 0.8f);
-                    SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.steamHiss : null, center, 0.5f, 1.1f);
+                    hissTimer = 0.7f;
+                    SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.waterPour : null, lip + fwd * 1.5f, 0.8f);
                 }
-                UpdateWater(h);
             }
+            UpdateWater(h);
             yield return null;
         }
+        h.fill = Mathf.Max(0f, h.fill);
         UpdateWater(h);
         yield return Tween(h, liftPos, Vector3.zero, new Vector3(tilt, 0f, 0f), Vector3.zero, 0.45f);
         h.busy = false;

@@ -120,6 +120,8 @@ public class WaterWell : MonoBehaviour
         float bigStart = big.Fill;
         float poured = 0f;
         float emitCarry = 0f;
+        float emittedFrac = 0f;
+        float startFill = bucketFill.Fill;
         float mouthDist = 0.2f * bucket.localScale.y;
         Vector3 center = pourTarget.position;
 
@@ -141,20 +143,34 @@ public class WaterWell : MonoBehaviour
                 bucketFill.SetFill(f);
 
                 Vector3 mouth = bucket.position + bucket.up * mouthDist;
-                emitCarry += (ParticlesPerHaul / (dur * 0.5f)) * flow * Time.deltaTime;
+                emitCarry += (poured - emittedFrac) / Mathf.Max(startFill, 0.01f) * ParticlesPerHaul;
+                emittedFrac = poured;
                 int n = Mathf.FloorToInt(emitCarry);
                 emitCarry -= n;
                 for (int i = 0; i < n; i++)
                 {
-                    Vector2 o = Random.insideUnitCircle * 0.1f;
+                    Vector2 o = Random.insideUnitCircle * 0.05f;
                     Vector3 land = center + new Vector3(o.x, 0f, o.y);
                     float tt = 0.32f + Random.Range(0f, 0.05f);
                     Vector3 v = (land - mouth) / tt - 0.5f * Physics.gravity * tt;
-                    Vector3 p0 = mouth + bucket.right * Random.Range(-0.12f, 0.12f) + Random.insideUnitSphere * 0.04f;
+                    Vector3 p0 = mouth + bucket.right * Random.Range(-0.06f, 0.06f) + Random.insideUnitSphere * 0.04f;
                     WaterSim.Emit(p0 + v * (Time.deltaTime * Random.value), v);
                 }
             }
             yield return null;
+        }
+        // Kalan suyu da ayni hedefe aktar (hicbir sey disari dokulmesin)
+        {
+            int rest = Mathf.RoundToInt(emitCarry + (1f - poured / Mathf.Max(startFill, 0.01f)) * ParticlesPerHaul);
+            Vector3 mouth = bucket.position + bucket.up * mouthDist;
+            for (int i = 0; i < rest; i++)
+            {
+                Vector2 o = Random.insideUnitCircle * 0.05f;
+                Vector3 land = center + new Vector3(o.x, 0f, o.y);
+                float tt = 0.32f + Random.Range(0f, 0.05f);
+                Vector3 v = (land - mouth) / tt - 0.5f * Physics.gravity * tt;
+                WaterSim.Emit(mouth + bucket.right * Random.Range(-0.06f, 0.06f), v);
+            }
         }
         bucketFill.SetFill(0f);
         if (SfxPlayer.I != null) SfxPlayer.Play(SfxPlayer.I.waterPour, center, 0.8f);
