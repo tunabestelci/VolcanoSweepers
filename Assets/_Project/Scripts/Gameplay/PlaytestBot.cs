@@ -71,23 +71,34 @@ public class PlaytestBot : MonoBehaviour
         player.LookAt(Surface(0f, spawn.z + 12f));
         yield return Shot("01_start");
 
-        // Kuyudan buyuk kovaya su cek, sonra kovayi buyuk kovadan doldur
-        var well = FindFirstObjectByType<WaterWell>();
-        var big = FindFirstObjectByType<BigBucket>();
-        Vector3 wp = well.transform.position + Vector3.up * 0.8f;
-        player.Teleport(new Vector3(wp.x - 3.2f, spawn.y, wp.z - 0.5f));
+        // Kuyu: kova iner, dolar, cikar, buyuk kovaya bosalir
+        var well = FindAnyObjectByType<WaterWell>();
+        BigBucket big = null;
+        foreach (var bb in FindObjectsByType<BigBucket>(FindObjectsSortMode.None)) if (bb.name == "BigBucket") big = bb;
+        Vector3 wp = well.transform.position;
+        Vector3 side = Vector3.Cross(Vector3.up, well.tipDir);
+        Vector3 pos = wp + well.tipDir * 3.7f + side * 1.6f;
+        pos.y = spawn.y;
+        player.Teleport(pos);
         yield return new WaitForSeconds(0.3f);
-        player.LookAt(wp);
-        yield return new WaitForSeconds(0.2f);
+        player.LookAt(wp + Vector3.up * 1.1f);
+        yield return new WaitForSeconds(0.3f);
         yield return Shot("01b_well");
         tools.DoPull();
-        yield return new WaitForSeconds(1.3f);
-        yield return Shot("02_pull");
-        yield return new WaitForSeconds(1.6f);
+        yield return new WaitForSeconds(1.4f);
+        yield return Shot("02a_lowering");
+        yield return new WaitForSeconds(2.0f);
+        yield return Shot("02b_dip");
+        yield return new WaitForSeconds(2.2f);
+        yield return Shot("02c_raising");
+        yield return new WaitForSeconds(1.9f);
+        yield return Shot("02d_tipping");
+        yield return new WaitForSeconds(2.3f);
+        yield return Shot("02e_poured");
         Debug.Log($"[BOT] buyuk kova dolu: {big.Fill:F2}");
-        player.Teleport(new Vector3(big.transform.position.x - 1.4f, spawn.y, big.transform.position.z - 0.2f));
+        player.Teleport(new Vector3(big.transform.position.x + well.tipDir.x * 1.2f + side.x * 0.8f, spawn.y, big.transform.position.z + well.tipDir.z * 1.2f + side.z * 0.8f));
         yield return new WaitForSeconds(0.2f);
-        player.LookAt(big.transform.position + Vector3.up * 0.4f);
+        player.LookAt(big.transform.position + Vector3.up * 0.5f);
         yield return new WaitForSeconds(0.2f);
         tools.DoBucket(false);
         yield return new WaitForSeconds(0.8f);

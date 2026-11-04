@@ -13,6 +13,7 @@ public class WaterDrop : MonoBehaviour
     float size;
     float life;
     bool secondary;
+    float killY = float.NegativeInfinity;
     TrailRenderer trail;
 
     public static int Alive => alive;
@@ -24,7 +25,7 @@ public class WaterDrop : MonoBehaviour
         alive = 0;
     }
 
-    public static void Emit(Vector3 pos, Vector3 velocity, bool secondary = false)
+    public static void Emit(Vector3 pos, Vector3 velocity, bool secondary = false, float killY = float.NegativeInfinity)
     {
         if (prefab == null || alive > 1600) return;
         WaterDrop d;
@@ -37,6 +38,7 @@ public class WaterDrop : MonoBehaviour
         }
         alive++;
         d.secondary = secondary;
+        d.killY = killY;
         d.transform.position = pos;
         d.vel = velocity;
         d.size = secondary ? Random.Range(0.015f, 0.03f) : Random.Range(0.028f, 0.05f);
@@ -60,6 +62,11 @@ public class WaterDrop : MonoBehaviour
 
         var field = LavaField.I;
         bool hit = false;
+        if (killY > float.NegativeInfinity && next.y <= killY)
+        {
+            Release();
+            return;
+        }
         if (field != null && next.y <= field.HeightAt(next))
         {
             float speed = vel.magnitude;

@@ -581,6 +581,23 @@ public static class VolcanoSweepersSetup
         td.size = new Vector3(worldSize, heightRange, worldSize);
         td.SetHeights(0, 0, data);
 
+        // Kuyu govdesi icin arazide delik
+        {
+            Vector3 org = new Vector3(-cxPx * mPerPx, 0f, -cyT * mPerPx);
+            Vector3 wellW = new Vector3(0f, 0f, -padDist) + WellOffset;
+            int hr = td.holesResolution;
+            var holes = new bool[hr, hr];
+            for (int hy = 0; hy < hr; hy++)
+                for (int hx = 0; hx < hr; hx++)
+                {
+                    float wx = org.x + (hx + 0.5f) / hr * worldSize;
+                    float wz = org.z + (hy + 0.5f) / hr * worldSize;
+                    float dd = (wx - wellW.x) * (wx - wellW.x) + (wz - wellW.z) * (wz - wellW.z);
+                    holes[hy, hx] = dd >= 0.95f * 0.95f;
+                }
+            td.SetHoles(0, 0, holes);
+        }
+
         var layer = new TerrainLayer
         {
             diffuseTexture = Tex(TerrainDir + "/Volcano_Albedo.png"),
@@ -607,6 +624,153 @@ public static class VolcanoSweepersSetup
 
     // ---------- Ekipman istasyonu ----------
 
+    static readonly Vector3 WellOffset = new Vector3(5.5f, 0f, -3.2f);   // platform merkezine gore kuyu
+    const float WellScale = 1.25f;
+
+    class WellParts { public Mesh baseOpen, wheelClean; public Vector3 axis; }
+
+    // Mesh'i konum kaynakli baglantili parcalara ayirir, secilen parcalari cikarip yeni mesh uretir
+    static Mesh CopyWithout(Mesh src, string name, System.Func<Bounds, bool> remove)
+    {
+        var verts = src.vertices;
+        var tris = src.triangles;
+        var map = new System.Collections.Generic.Dictionary<Vector3Int, int>();
+        var weld = new int[verts.Length];
+        for (int i = 0; i < verts.Length; i++)
+        {
+            var k = new Vector3Int(Mathf.RoundToInt(verts[i].x * 1000f), Mathf.RoundToInt(verts[i].y * 1000f), Mathf.RoundToInt(verts[i].z * 1000f));
+            if (!map.TryGetValue(k, out int id)) { id = map.Count; map[k] = id; }
+            weld[i] = id;
+        }
+        var parent = new int[map.Count];
+        for (int i = 0; i < parent.Length; i++) parent[i] = i;
+        int Find(int x) { while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; }
+        for (int t = 0; t < tris.Length; t += 3)
+        {
+            int a = Find(weld[tris[t]]), b = Find(weld[tris[t + 1]]), c = Find(weld[tris[t + 2]]);
+            parent[b] = a;
+            parent[Find(c)] = Find(a);
+        }
+        var bounds = new System.Collections.Generic.Dictionary<int, Bounds>();
+        for (int t = 0; t < tris.Length; t += 3)
+        {
+            int r = Find(weld[tris[t]]);
+            for (int j = 0; j < 3; j++)
+            {
+                var v = verts[tris[t + j]];
+                if (!bounds.TryGetValue(r, out var bb)) bb = new Bounds(v, Vector3.zero); else bb.Encapsulate(v);
+                bounds[r] = bb;
+            }
+        }
+        var keep = new System.Collections.Generic.List<int>();
+        int removed = 0;
+        for (int t = 0; t < tris.Length; t += 3)
+        {
+            if (remove(bounds[Find(weld[tris[t]])])) { removed++; continue; }
+            keep.Add(tris[t]); keep.Add(tris[t + 1]); keep.Add(tris[t + 2]);
+        }
+        Debug.Log($"[Well] {name}: {tris.Length / 3} ucgen, {removed} cikarildi, {bounds.Count} parca");
+        var m = new Mesh { name = name, indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
+        m.vertices = verts;
+        m.normals = src.normals;
+        m.tangents = src.tangents;
+        m.uv = src.uv;
+        m.triangles = keep.ToArray();
+        m.RecalculateBounds();
+        return m;
+    }
+
+    static Mesh SaveMesh(Mesh m, string file)
+    {
+        string dir = Art + "/Models/Well/Parts";
+        Directory.CreateDirectory(dir);
+        string path = dir + "/" + file + ".asset";
+        AssetDatabase.DeleteAsset(path);
+        AssetDatabase.CreateAsset(m, path);
+        return AssetDatabase.LoadAssetAtPath<Mesh>(path);
+    }
+
+    static WellParts BuildWellParts()
+    {
+        var parts = new WellParts();
+        Mesh baseM = null, wheelM = null;
+        foreach (var o in AssetDatabase.LoadAllAssetsAtPath(Art + "/Models/Well/Well.glb"))
+        {
+            var m = o as Mesh;
+            if (m == null) continue;
+            if (m.name.Contains("Well_Base")) baseM = m;
+            else if (m.name.Contains("WheelAcc")) wheelM = m;
+        }
+        if (baseM == null || wheelM == null) { Debug.LogError("[Well] mesh'ler bulunamadi"); return parts; }
+
+        // Kapagi cikar
+        parts.baseOpen = SaveMesh(CopyWithout(baseM, "WellBase_Open", b => b.center.z > 0.9f && b.size.z < 0.2f), "WellBase_Open");
+        // Kucuk kova, zinciri ve sarkan ipi cikar
+        parts.wheelClean = SaveMesh(CopyWithout(wheelM, "WellWheel_Clean", b =>
+            b.min.z < 0.6f
+            || (Mathf.Abs(b.center.x) < 0.3f && Mathf.Abs(b.center.y) > 0.3f && Mathf.Abs(b.center.y) < 0.8f && b.center.z > 0.95f && b.center.z < 1.32f && b.size.y < 0.5f)
+            || (b.center.z < 1.12f && b.size.z > 0.2f && Mathf.Abs(b.center.x) < 0.3f && Mathf.Abs(b.center.y) < 0.15f)), "WellWheel_Clean");
+
+        // Donderme ekseni: yan carklarin merkezi (x ekseni boyunca)
+        float minY = float.MaxValue, maxY = float.MinValue, minZ = float.MaxValue, maxZ = float.MinValue;
+        foreach (var v in wheelM.vertices)
+        {
+            if (Mathf.Abs(v.x) <= 0.95f) continue;
+            minY = Mathf.Min(minY, v.y); maxY = Mathf.Max(maxY, v.y);
+            minZ = Mathf.Min(minZ, v.z); maxZ = Mathf.Max(maxZ, v.z);
+        }
+        parts.axis = new Vector3(0f, (minY + maxY) * 0.5f, (minZ + maxZ) * 0.5f);
+        Debug.Log("[Well] eksen (mesh yerel): " + parts.axis);
+        return parts;
+    }
+
+    // Icten gorunen (normalleri ice bakan) silindir: kuyu govdesi
+    static Mesh ShaftMesh(float radius, float depth, int seg)
+    {
+        var verts = new System.Collections.Generic.List<Vector3>();
+        var norms = new System.Collections.Generic.List<Vector3>();
+        var uvs = new System.Collections.Generic.List<Vector2>();
+        var tris = new System.Collections.Generic.List<int>();
+        for (int i = 0; i <= seg; i++)
+        {
+            float a = i / (float)seg * Mathf.PI * 2f;
+            float x = Mathf.Cos(a), z = Mathf.Sin(a);
+            verts.Add(new Vector3(x * radius, 0f, z * radius)); norms.Add(new Vector3(-x, 0f, -z)); uvs.Add(new Vector2(i / (float)seg * 3f, 0f));
+            verts.Add(new Vector3(x * radius, -depth, z * radius)); norms.Add(new Vector3(-x, 0f, -z)); uvs.Add(new Vector2(i / (float)seg * 3f, depth * 0.5f));
+        }
+        for (int i = 0; i < seg; i++)
+        {
+            int a = i * 2;
+            tris.AddRange(new[] { a, a + 1, a + 2, a + 2, a + 1, a + 3 });
+        }
+        var m = new Mesh { name = "WellShaft" };
+        m.SetVertices(verts); m.SetNormals(norms); m.SetUVs(0, uvs); m.SetTriangles(tris, 0);
+        return m;
+    }
+
+    // Duz halka (kuyunun etrafindaki tas doseme)
+    static Mesh RingMesh(float inner, float outer, int seg)
+    {
+        var verts = new System.Collections.Generic.List<Vector3>();
+        var uvs = new System.Collections.Generic.List<Vector2>();
+        var tris = new System.Collections.Generic.List<int>();
+        for (int i = 0; i <= seg; i++)
+        {
+            float a = i / (float)seg * Mathf.PI * 2f;
+            float x = Mathf.Cos(a), z = Mathf.Sin(a);
+            verts.Add(new Vector3(x * inner, 0f, z * inner)); uvs.Add(new Vector2(x * inner, z * inner));
+            verts.Add(new Vector3(x * outer, 0f, z * outer)); uvs.Add(new Vector2(x * outer, z * outer));
+        }
+        for (int i = 0; i < seg; i++)
+        {
+            int a = i * 2;
+            tris.AddRange(new[] { a, a + 2, a + 1, a + 1, a + 2, a + 3 });
+        }
+        var m = new Mesh { name = "WellApron" };
+        m.SetVertices(verts); m.SetUVs(0, uvs); m.SetTriangles(tris, 0); m.RecalculateNormals();
+        return m;
+    }
+
     static GameObject Prim(PrimitiveType type, string name, Transform parent, Vector3 pos, Vector3 scale, Material mat, bool collider = false)
     {
         var go = GameObject.CreatePrimitive(type);
@@ -627,42 +791,107 @@ public static class VolcanoSweepersSetup
         // Beton platform
         Prim(PrimitiveType.Cylinder, "Slab", root, c + new Vector3(0f, -0.04f, 0f), new Vector3(15f, 0.08f, 15f), m.concrete);
 
-        // Su kuyusu (kullanicinin modeli) + yaninda buyuk kova
-        var wellAsset = AssetDatabase.LoadAssetAtPath<GameObject>(Art + "/Models/Well/Well.glb");
+        // Su kuyusu: ustu acik, kova ip ile bagli, donderme makarasi ile iner/cikar
+        Vector3 wellPos = c + WellOffset;
+        Vector3 toPad = new Vector3(-WellOffset.x, 0f, -WellOffset.z).normalized;
+        float yaw = Mathf.Atan2(toPad.x, toPad.z) * Mathf.Rad2Deg;
         var wellRoot = new GameObject("WaterWell");
         wellRoot.transform.SetParent(root, false);
-        wellRoot.transform.position = c + new Vector3(5.5f, 0f, -3.2f);
-        wellRoot.transform.rotation = Quaternion.Euler(0f, 200f, 0f);
-        const float WellScale = 1.25f;
-        if (wellAsset != null)
+        wellRoot.transform.position = wellPos;
+        wellRoot.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+
+        var parts = BuildWellParts();
+        var wellAsset = AssetDatabase.LoadAssetAtPath<GameObject>(Art + "/Models/Well/Well.glb");
+        Transform pivot = null;
+        if (wellAsset != null && parts.baseOpen != null)
         {
             var wm = (GameObject)PrefabUtility.InstantiatePrefab(wellAsset, wellRoot.transform);
             wm.name = "WellModel";
+            PrefabUtility.UnpackPrefabInstance(wm, PrefabUnpackMode.Completely, InteractionMode.AutomatedAction);
             wm.transform.localRotation = Quaternion.Euler(-90f, 0f, 0f);
             wm.transform.localScale = Vector3.one * WellScale;
             wm.transform.localPosition = Vector3.zero;
             foreach (var col in wm.GetComponentsInChildren<Collider>()) Object.DestroyImmediate(col);
+            foreach (var mf in wm.GetComponentsInChildren<MeshFilter>())
+            {
+                if (mf.name.Contains("Well_Base")) mf.sharedMesh = parts.baseOpen;
+                else if (mf.name.Contains("WheelAcc"))
+                {
+                    mf.sharedMesh = parts.wheelClean;
+                    var pv = new GameObject("WheelPivot");
+                    pv.transform.SetParent(mf.transform.parent, false);
+                    pv.transform.localPosition = parts.axis;
+                    mf.transform.SetParent(pv.transform, true);
+                    pivot = pv.transform;
+                }
+            }
         }
+
         var wellCol = new GameObject("WellCollider");
         wellCol.transform.SetParent(wellRoot.transform, false);
         wellCol.transform.localPosition = new Vector3(0f, 0.8f, 0f);
         var wbox = wellCol.AddComponent<BoxCollider>();
         wbox.size = new Vector3(2.2f, 1.6f, 2.2f);
-        var wellComp = wellRoot.AddComponent<WaterWell>();
 
+        // Tas doseme, kuyu govdesi ve dipteki su
+        var apron = Prim(PrimitiveType.Cube, "WellApron", root, wellPos + new Vector3(0f, 0.02f, 0f), Vector3.one, m.concrete);
+        apron.GetComponent<MeshFilter>().sharedMesh = RingMesh(0.66f, 1.55f, 40);
+        float shaftDepth = 4.4f;
+        float waterLevel = wellPos.y - 3.3f;
+        var shaft = Prim(PrimitiveType.Cube, "WellShaft", root, wellPos + new Vector3(0f, 0.5f, 0f), Vector3.one, m.rock);
+        shaft.GetComponent<MeshFilter>().sharedMesh = ShaftMesh(0.655f, shaftDepth + 0.5f, 28);
+        Prim(PrimitiveType.Cylinder, "WellBottom", root, new Vector3(wellPos.x, wellPos.y - shaftDepth, wellPos.z), new Vector3(1.3f, 0.02f, 1.3f), m.cleared);
+        var shaftWater = Prim(PrimitiveType.Cylinder, "WellWater", root, new Vector3(wellPos.x, waterLevel, wellPos.z), new Vector3(1.3f, 0.02f, 1.3f), m.water);
+        shaftWater.AddComponent<WaterSurface>();
+        var wl = new GameObject("WellLight");
+        wl.transform.SetParent(root, false);
+        wl.transform.position = new Vector3(wellPos.x, waterLevel + 1.2f, wellPos.z);
+        var wlight = wl.AddComponent<Light>();
+        wlight.type = LightType.Point; wlight.color = new Color(0.45f, 0.65f, 0.9f); wlight.range = 6f; wlight.intensity = 3f;
+
+        // Buyuk kova (kuyunun onunde, devrilen kovanin altinda)
+        float bigScale = 2.4f;
         var bigGo = (GameObject)PrefabUtility.InstantiatePrefab(bucketPrefab, root);
         bigGo.name = "BigBucket";
-        bigGo.transform.position = c + new Vector3(2.9f, 0.62f, -1.6f);
-        bigGo.transform.localScale = Vector3.one * 3.6f;
+        bigGo.transform.position = wellPos + toPad * 1.65f + new Vector3(0f, 0.34f * bigScale * 0.5f, 0f);
+        bigGo.transform.localScale = Vector3.one * bigScale;
         var bcol = bigGo.AddComponent<CapsuleCollider>();
         bcol.direction = 1;
         bcol.radius = 0.34f * 0.5f * 1.05f;
         bcol.height = 0.34f;
         bigGo.AddComponent<WaterSource>();
         var big = bigGo.AddComponent<BigBucket>();
-        wellComp.bucket = big;
-        // Kovanin altina tas kaide
-        Prim(PrimitiveType.Cylinder, "BigBucketBase", root, c + new Vector3(2.9f, 0.04f, -1.6f), new Vector3(1.6f, 0.08f, 1.6f), m.concrete);
+        Prim(PrimitiveType.Cylinder, "BigBucketBase", root, wellPos + toPad * 1.65f + new Vector3(0f, 0.03f, 0f), new Vector3(1.3f, 0.06f, 1.3f), m.concrete);
+        var pourT = new GameObject("PourTarget").transform;
+        pourT.SetParent(root, false);
+        pourT.position = bigGo.transform.position + Vector3.up * (0.34f * bigScale * 0.5f);
+
+        // Kuyu kovasi + ip
+        float axisY = pivot != null ? pivot.position.y : wellPos.y + 1.7f;
+        float logR = 0.14f * WellScale;
+        Vector3 anchor = new Vector3(wellPos.x, axisY - logR, wellPos.z);
+        float hangScale = 1.2f;
+        float topY = axisY - logR - 0.34f * hangScale * 0.5f - 0.28f;
+        var hang = (GameObject)PrefabUtility.InstantiatePrefab(bucketPrefab, root);
+        hang.name = "WellBucket";
+        hang.transform.localScale = Vector3.one * hangScale;
+        hang.transform.position = new Vector3(wellPos.x, topY, wellPos.z);
+        var hangFill = hang.AddComponent<BigBucket>();
+        var rope = Prim(PrimitiveType.Cylinder, "WellRope", root, new Vector3(wellPos.x, topY + 0.3f, wellPos.z), new Vector3(0.035f, 0.3f, 0.035f), m.wood);
+
+        var wellComp = wellRoot.AddComponent<WaterWell>();
+        wellComp.wheelPivot = pivot;
+        wellComp.bucket = hang.transform;
+        wellComp.bucketFill = hangFill;
+        wellComp.rope = rope.transform;
+        wellComp.big = big;
+        wellComp.pourTarget = pourT;
+        wellComp.anchor = anchor;
+        wellComp.tipDir = toPad;
+        wellComp.topY = topY;
+        wellComp.bottomY = waterLevel + 0.25f;
+        wellComp.waterY = waterLevel;
+        wellComp.logRadius = logR;
 
         // Sandiklar
         Prim(PrimitiveType.Cube, "Crate1", root, c + new Vector3(-5f, 0.45f, -1f), new Vector3(1.2f, 0.9f, 1.2f), m.wood, true);

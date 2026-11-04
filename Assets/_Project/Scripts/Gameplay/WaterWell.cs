@@ -1,36 +1,159 @@
 using System.Collections;
 using UnityEngine;
 
-// Su kuyusu: E ile buyuk kovayi doldurur (kuyudan su cekme).
+// Su kuyusu: E ile kova kuyuya iner (donderme makarasi doner), dolar, cikar, devrilip buyuk kovaya bosalir.
 public class WaterWell : MonoBehaviour
 {
-    public BigBucket bucket;
-    public float pullTime = 2.4f;
+    public Transform wheelPivot;     // donen makara + cark
+    public Transform bucket;         // kuyu kovasi
+    public BigBucket bucketFill;     // kuyu kovasinin su gorseli
+    public Transform rope;           // ip (silindir)
+    public BigBucket big;            // buyuk kova
+    public Transform pourTarget;     // buyuk kovanin agzi
+    public Vector3 anchor;           // ipin makaraya baglandigi nokta (dunya)
+    public Vector3 tipDir;           // kovanin devrildigi yon (buyuk kovaya dogru)
+    public float topY;               // kovanin yukaridaki yuksekligi
+    public float bottomY;            // kovanin kuyu icindeki en alt yuksekligi
+    public float waterY;             // kuyudaki su seviyesi
+    public float logRadius = 0.175f;
+    public float haulAmount = 0.5f;  // bir cekis buyuk kovanin ne kadarini doldurur
 
     bool busy;
+    Vector3 bucketXZ;
+    float bucketHalfH;
+    float baseLen;
+
+    void Awake()
+    {
+        if (bucket == null) return;
+        bucketXZ = bucket.position;
+        bucketHalfH = 0.17f * bucket.localScale.y;
+        baseLen = anchor.y - (topY + bucketHalfH);
+        SetBucketY(topY);
+    }
 
     public string Pull()
     {
-        if (bucket == null) return "";
-        if (busy) return "Kuyudan su cekiliyor...";
-        if (bucket.Fill > 0.98f) return "Buyuk kova zaten dolu";
-        StartCoroutine(PullRoutine());
-        return "Kuyudan su cekiliyor...";
+        if (bucket == null || big == null) return "";
+        if (busy) return "Kova kuyuda...";
+        if (big.Fill > 0.98f) return "Buyuk kova zaten dolu";
+        StartCoroutine(Run());
+        return "Kova kuyuya iniyor...";
     }
 
-    IEnumerator PullRoutine()
+    void SetBucketY(float y)
     {
-        busy = true;
-        Vector3 top = bucket.transform.position + Vector3.up * 0.6f;
-        if (SfxPlayer.I != null) SfxPlayer.Play(SfxPlayer.I.waterFill, transform.position + Vector3.up, 1f, 0.8f);
-        float f0 = bucket.Fill;
-        for (float t = 0f; t < pullTime; t += Time.deltaTime)
+        bucket.position = new Vector3(bucketXZ.x, y, bucketXZ.z);
+        float len = anchor.y - (y + bucketHalfH);
+        if (wheelPivot != null)
+            wheelPivot.localRotation = Quaternion.Euler((len - baseLen) / logRadius * Mathf.Rad2Deg, 0f, 0f);
+        UpdateRope(y);
+    }
+
+    void UpdateRope(float y)
+    {
+        if (rope == null) return;
+        float top = anchor.y;
+        float bottom = y + bucketHalfH;
+        float len = Mathf.Max(0.02f, top - bottom);
+        rope.position = new Vector3(bucketXZ.x, (top + bottom) * 0.5f, bucketXZ.z);
+        rope.localScale = new Vector3(rope.localScale.x, len * 0.5f, rope.localScale.z);
+    }
+
+    static float Smooth(float k) { return k * k * (3f - 2f * k); }
+
+    IEnumerator Move(float from, float to, float dur)
+    {
+        for (float t = 0f; t < dur; t += Time.deltaTime)
         {
-            bucket.SetFill(Mathf.Lerp(f0, 1f, t / pullTime));
-            if (Random.value < 0.12f) Fx.Splash(top + Random.insideUnitSphere * 0.15f);
+            SetBucketY(Mathf.Lerp(from, to, Smooth(t / dur)));
             yield return null;
         }
-        bucket.SetFill(1f);
+        SetBucketY(to);
+    }
+
+    IEnumerator Run()
+    {
+        busy = true;
+        bucket.rotation = Quaternion.identity;
+        bucketFill.SetFill(0f);
+
+        // 1) Kuyuya in
+        yield return Move(topY, bottomY, 2.4f);
+
+        // 2) Suya degdi: sicrama + dolma
+        Vector3 wp = new Vector3(bucketXZ.x, waterY, bucketXZ.z);
+        Fx.Splash(wp);
+        if (SfxPlayer.I != null) SfxPlayer.Play(SfxPlayer.I.waterFill, wp, 1f, 0.9f);
+        const float fillTime = 0.9f;
+        for (float t = 0f; t < fillTime; t += Time.deltaTime)
+        {
+            bucketFill.SetFill(t / fillTime);
+            SetBucketY(bottomY + Mathf.Sin(t * 9f) * 0.03f);
+            yield return null;
+        }
+        bucketFill.SetFill(1f);
+
+        // 3) Cek
+        yield return Move(bottomY, topY, 2.6f);
+
+        // 4) Devir ve buyuk kovaya bosalt
+        yield return Tip();
         busy = false;
+    }
+
+    IEnumerator Tip()
+    {
+        Vector3 axis = Vector3.Cross(Vector3.up, tipDir).normalized;
+        const float dur = 1.7f;
+        const float maxTilt = 108f;
+        float haul = bucketFill.Fill * haulAmount;
+        float bigStart = big.Fill;
+        float poured = 0f;
+        float emitCarry = 0f;
+        float mouthDist = 0.2f * bucket.localScale.y;
+        Vector3 center = pourTarget.position;
+
+        for (float t = 0f; t < dur; t += Time.deltaTime)
+        {
+            float tilt = maxTilt * Smooth(Mathf.Clamp01(t / (dur * 0.55f)));
+            bucket.rotation = Quaternion.AngleAxis(tilt, axis);
+
+            float flow = Mathf.InverseLerp(50f, maxTilt, tilt);
+            if (flow > 0f && bucketFill.Fill > 0.005f)
+            {
+                float drain = Time.deltaTime / (dur * 0.5f) * flow;
+                float f = Mathf.Max(0f, bucketFill.Fill - drain);
+                poured += (bucketFill.Fill - f);
+                bucketFill.SetFill(f);
+                big.SetFill(Mathf.Min(1f, bigStart + poured * haulAmount));
+
+                Vector3 mouth = bucket.position + bucket.up * mouthDist;
+                emitCarry += 320f * flow * Time.deltaTime;
+                int n = Mathf.FloorToInt(emitCarry);
+                emitCarry -= n;
+                for (int i = 0; i < n; i++)
+                {
+                    Vector2 o = Random.insideUnitCircle * 0.14f;
+                    Vector3 land = center + new Vector3(o.x, 0f, o.y);
+                    float tt = 0.3f + Random.Range(0f, 0.06f);
+                    Vector3 v = (land - mouth) / tt - 0.5f * Physics.gravity * tt;
+                    WaterDrop.Emit(mouth + Random.insideUnitSphere * 0.02f, v, false, center.y - 0.03f);
+                }
+            }
+            yield return null;
+        }
+        bucketFill.SetFill(0f);
+        big.SetFill(Mathf.Min(1f, bigStart + haul));
+        if (SfxPlayer.I != null) SfxPlayer.Play(SfxPlayer.I.waterPour, center, 0.8f);
+
+        // Duzel
+        Quaternion from = bucket.rotation;
+        for (float t = 0f; t < 0.5f; t += Time.deltaTime)
+        {
+            bucket.rotation = Quaternion.Slerp(from, Quaternion.identity, Smooth(t / 0.5f));
+            yield return null;
+        }
+        bucket.rotation = Quaternion.identity;
     }
 }
