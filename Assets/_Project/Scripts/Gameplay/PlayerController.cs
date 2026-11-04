@@ -14,6 +14,8 @@ public class PlayerController : MonoBehaviour
     float verticalVel;
     float shakeTime, shakeAmount;
     Vector3 camBase;
+    Vector3 spawn;
+    Terrain terrain;
 
     public float Speed01 { get; private set; }
     public float Pitch => pitch;
@@ -22,6 +24,8 @@ public class PlayerController : MonoBehaviour
     {
         cc = GetComponent<CharacterController>();
         camBase = cam.transform.localPosition;
+        spawn = transform.position;
+        terrain = FindFirstObjectByType<Terrain>();
         LockCursor(true);
     }
 
@@ -29,6 +33,16 @@ public class PlayerController : MonoBehaviour
     {
         Cursor.lockState = locked ? CursorLockMode.Locked : CursorLockMode.None;
         Cursor.visible = !locked;
+    }
+
+    float GroundHeight(Vector3 p)
+    {
+        var field = LavaField.I;
+        if (field != null && field.InsidePool(p)) return field.HeightAt(p);
+        if (field != null && Vector2.Distance(new Vector2(p.x, p.z), new Vector2(field.transform.position.x, field.transform.position.z)) < 24f)
+            return field.BaseY;
+        if (terrain != null) return terrain.SampleHeight(p) + terrain.transform.position.y;
+        return field != null ? field.BaseY : 0f;
     }
 
     public void LookAt(Vector3 point)
@@ -80,9 +94,29 @@ public class PlayerController : MonoBehaviour
         float speed = kb.leftShiftKey.isPressed ? sprintSpeed : walkSpeed;
         Vector3 move = (transform.right * input.x + transform.forward * input.y) * speed;
 
-        verticalVel = cc.isGrounded ? -1f : verticalVel - 20f * Time.deltaTime;
-        move.y = verticalVel;
+        // Dikey hareket: lav yuzeyini (kazildikca alcalir) veya araziyi takip et
+        float ground = GroundHeight(transform.position);
+        float y = transform.position.y;
+        if (y > ground + 0.02f)
+        {
+            verticalVel -= 20f * Time.deltaTime;
+            move.y = verticalVel;
+        }
+        else
+        {
+            verticalVel = 0f;
+            move.y = (ground - y) * 12f;   // basamak cikma / yumusak inis
+        }
         cc.Move(move * Time.deltaTime);
+
+        // Alandan cok uzaklasma
+        Vector3 flat = transform.position - spawn;
+        flat.y = 0f;
+        if (flat.magnitude > 30f)
+        {
+            Vector3 back = -flat.normalized * (flat.magnitude - 30f);
+            cc.Move(back);
+        }
 
         Speed01 = Mathf.Lerp(Speed01, input.magnitude * (speed / sprintSpeed), 10f * Time.deltaTime);
 

@@ -14,4 +14,5 @@
 *.wav filter=lfs diff=lfs merge=lfs -text
 *.mp3 binary
 *.ogg binary
-*.glb binary
+*.glb filter=lfs diff=lfs merge=lfs -text
+*.raw filter=lfs diff=lfs merge=lfs -text

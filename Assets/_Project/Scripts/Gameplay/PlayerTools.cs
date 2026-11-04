@@ -73,6 +73,7 @@ public class PlayerTools : MonoBehaviour
     public bool Busy => left.busy || right.busy;
     public void DoBucket(bool leftHand) { UseBucket(leftHand ? left : right); }
     public void DoSwing() { if (!right.busy) StartCoroutine(SwingPickaxe()); }
+    public bool BotPourBusy => left.busy || right.busy;
     public void DoPickup() { TryPickup(); }
     public void DoEquip(Tool t) { Equip(t); }
 
@@ -97,7 +98,8 @@ public class PlayerTools : MonoBehaviour
         {
             right.item = Instantiate(pickaxePrefab, right.root);
             right.item.transform.localPosition = Vector3.zero;
-            right.item.transform.localRotation = Quaternion.identity;
+            // Kazma ucu one baksin (vurus yonunde), sap asagida
+            right.item.transform.localRotation = Quaternion.Euler(0f, 0f, 0f);
             // Kazma sag elde, onde ve hazir
             right.readyPos = new Vector3(0.36f, -0.42f, 0.55f);
             right.readyEuler = new Vector3(25f, 0f, -10f);
@@ -220,28 +222,42 @@ public class PlayerTools : MonoBehaviour
         return found;
     }
 
+    // Nisangahin gosterdigi nokta: once havuz (su), sonra lav yuzeyi
+    bool AimPoint(out Vector3 point, out bool isWater)
+    {
+        isWater = false;
+        point = Vector3.zero;
+        var ray = new Ray(cam.transform.position, cam.transform.forward);
+        bool physHit = Raycast(out var hit);
+        if (physHit && hit.collider.GetComponentInParent<WaterSource>() != null)
+        {
+            isWater = true;
+            point = hit.point;
+            return true;
+        }
+        var field = LavaField.I;
+        if (field != null && field.Raycast(ray, reach, out var fp))
+        {
+            point = fp;
+            return true;
+        }
+        if (physHit) { point = hit.point; return true; }
+        return false;
+    }
+
     void UseBucket(Hand h)
     {
         if (h.busy) return;
-        if (!Raycast(out var hit)) { SetHint("Hedef cok uzak"); return; }
+        if (!AimPoint(out var point, out bool isWater)) { SetHint("Hedef cok uzak"); return; }
 
-        if (hit.collider.GetComponentInParent<WaterSource>() != null)
+        if (isWater)
         {
             if (h.fill > 0.95f) { SetHint("Kova zaten dolu"); return; }
-            StartCoroutine(FillRoutine(h, hit.point));
+            StartCoroutine(FillRoutine(h, point));
             return;
         }
-
-        var cell = hit.collider.GetComponentInParent<VolcanoCell>();
-        if (cell != null)
-        {
-            if (h.fill < 0.95f) { SetHint("Kova bos - once havuzdan doldur"); return; }
-            if (cell.State != CellState.Lava) { SetHint("Burada lav yok"); return; }
-            StartCoroutine(PourRoutine(h, cell, hit.point));
-            return;
-        }
-        Debug.Log("[Tools] hedef: " + hit.collider.name + " (" + hit.collider.GetType().Name + ")");
-        SetHint("Havuza (su) veya lava bak");
+        if (h.fill < 0.05f) { SetHint("Kova bos - once havuzdan doldur"); return; }
+        StartCoroutine(PourRoutine(h));
     }
 
     IEnumerator FillRoutine(Hand h, Vector3 waterPoint)
@@ -269,31 +285,66 @@ public class PlayerTools : MonoBehaviour
         h.busy = false;
     }
 
-    IEnumerator PourRoutine(Hand h, VolcanoCell cell, Vector3 target)
+    const float DropsPerBucket = 520f;
+    public bool botHoldPour;   // test botu icin
+
+    // Kovanin egimine bagli akis: yeterince egilince su damlalari firlar, fizik kurallarina gore duser
+    IEnumerator PourRoutine(Hand h)
     {
         h.busy = true;
         Vector3 liftPos = new Vector3(h == left ? 0.12f : -0.12f, 0.2f, 0.28f);
-        Vector3 pourEul = new Vector3(105f, 0f, 0f);
+        Vector3 startEul = new Vector3(25f, 0f, 0f);
 
-        yield return Tween(h, Vector3.zero, liftPos, Vector3.zero, new Vector3(25f, 0f, 0f), 0.35f);
-        yield return Tween(h, liftPos, liftPos, new Vector3(25f, 0f, 0f), pourEul, 0.3f);
+        yield return Tween(h, Vector3.zero, liftPos, Vector3.zero, startEul, 0.35f);
 
-        SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.waterPour : null, target, 0.9f);
-        const float pourTime = 1.1f;
-        bool cooled = false;
-        for (float e = 0f; e < pourTime; e += Time.deltaTime)
+        float tilt = 25f;
+        float maxTilt = 112f;
+        float hissTimer = 0f;
+        float emitCarry = 0f;
+        float elapsed = 0f;
+        while (h.fill > 0.01f && elapsed < 7f)
         {
-            h.fill = Mathf.Lerp(1f, 0f, e / pourTime);
-            UpdateWater(h);
-            Vector3 mouth = h.root.position + cam.transform.forward * 0.25f + Vector3.up * 0.05f;
-            if (Random.value < 0.3f) Fx.WaterStream(mouth, target, 0.12f);
-            if (!cooled && e > pourTime * 0.55f) { cell.Cool(); cooled = true; }
+            elapsed += Time.deltaTime;
+            // Mouse sol tusu birakilirsa dokmeyi birak
+            var mouse = Mouse.current;
+            bool held = mouse != null && (h == right ? mouse.leftButton.isPressed : mouse.rightButton.isPressed);
+            if (!held && !botHoldPour) break;
+
+            tilt = Mathf.MoveTowards(tilt, maxTilt, 70f * Time.deltaTime);
+            h.animPos = liftPos;
+            h.animEuler = new Vector3(tilt, 0f, 0f);
+
+            // Egim 60 dereceyi gecince akmaya baslar
+            float flow = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(60f, maxTilt, tilt));
+            if (flow > 0.01f)
+            {
+                if (!AimPoint(out var target, out _)) target = h.root.position + cam.transform.forward * 3f;
+                Vector3 mouth = h.item != null ? h.item.transform.position + h.item.transform.up * 0.16f : h.root.position;
+                emitCarry += (40f + 260f * flow) * Time.deltaTime;
+                int n = Mathf.FloorToInt(emitCarry);
+                emitCarry -= n;
+                for (int i = 0; i < n; i++)
+                {
+                    float t = Mathf.Clamp(0.35f + Vector3.Distance(mouth, target) * 0.09f, 0.35f, 0.9f);
+                    Vector3 v = (target - mouth) / t - 0.5f * Physics.gravity * t;
+                    v += Random.insideUnitSphere * 0.28f;
+                    Vector3 spawn = mouth + Random.insideUnitSphere * 0.03f;
+                    WaterDrop.Emit(spawn, v);
+                    h.fill = Mathf.Max(0f, h.fill - 1f / DropsPerBucket);
+                }
+                hissTimer -= Time.deltaTime;
+                if (hissTimer <= 0f)
+                {
+                    hissTimer = 0.9f;
+                    SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.waterPour : null, target, 0.7f);
+                    SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.steamHiss : null, target, 0.5f, 1.1f);
+                }
+                UpdateWater(h);
+            }
             yield return null;
         }
-        h.fill = 0f;
         UpdateWater(h);
-        if (!cooled) cell.Cool();
-        yield return Tween(h, liftPos, Vector3.zero, pourEul, Vector3.zero, 0.45f);
+        yield return Tween(h, liftPos, Vector3.zero, new Vector3(tilt, 0f, 0f), Vector3.zero, 0.45f);
         h.busy = false;
     }
 
@@ -311,22 +362,50 @@ public class PlayerTools : MonoBehaviour
         yield return Tween(right, windPos, hitPos, windEul, hitEul, 0.11f);
 
         // Vurus aninda
-        if (Raycast(out var hit))
+        var field = LavaField.I;
+        var ray = new Ray(cam.transform.position, cam.transform.forward);
+        if (field != null && field.Raycast(ray, reach, out var p))
         {
-            var cell = hit.collider.GetComponentInParent<VolcanoCell>();
-            if (cell != null)
+            if (!field.InsidePool(p, 0.9f)) { SetHint("Burada kazacak bir sey yok"); }
+            else
             {
-                if (cell.State == CellState.Obsidian)
+                switch (field.Mine(p))
                 {
-                    cell.Hit(hit.point);
-                    player.Shake(0.025f, 0.12f);
+                    case MineResult.None:
+                        SetHint(field.DigAt(p) > 0.97f ? "Ana kayaya ulastin" : "Once lavi suyla sogut");
+                        break;
+                    case MineResult.Chipped:
+                        Fx.Chips(p + Vector3.up * 0.05f);
+                        SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.pickaxeHit : null, p, 1f);
+                        player.Shake(0.02f, 0.1f);
+                        break;
+                    case MineResult.Broken:
+                        Fx.Chips(p + Vector3.up * 0.1f, 26);
+                        SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.pickaxeHit : null, p, 1f);
+                        SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.obsidianBreak : null, p, 1f);
+                        player.Shake(0.035f, 0.15f);
+                        SpawnCores(p);
+                        break;
                 }
-                else if (cell.State == CellState.Lava) SetHint("Once lavi suyla sogut");
-                else if (cell.State == CellState.Cooling) SetHint("Obsidyen henuz sogumadi");
             }
         }
         yield return Tween(right, hitPos, Vector3.zero, hitEul, Vector3.zero, 0.3f);
         right.busy = false;
+    }
+
+    public GameObject coreItemPrefab;
+
+    void SpawnCores(Vector3 p)
+    {
+        if (coreItemPrefab == null) return;
+        int n = Random.Range(1, 3);
+        for (int i = 0; i < n; i++)
+        {
+            var go = Instantiate(coreItemPrefab, p + Vector3.up * 0.3f, Random.rotation);
+            var item = go.GetComponent<LithicCoreItem>();
+            if (item != null)
+                item.Launch(new Vector3(Random.Range(-1.2f, 1.2f), Random.Range(2f, 3.2f), Random.Range(-1.2f, 1.2f)));
+        }
     }
 
     // ---------- Litik cekirdek toplama ----------

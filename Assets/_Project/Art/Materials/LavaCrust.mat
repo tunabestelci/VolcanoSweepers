@@ -1,0 +1,59 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: LavaCrust
+  m_Shader: {fileID: 4800000, guid: d9b4289f6b07f514781d9da8fecf8b41, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_LockedProperties: 
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs:
+    - _LavaMap:
+        m_Texture: {fileID: 2800000, guid: 66c7ee721f8c7cd43a06e6df48b1a420, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _Mask:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _ObsMS:
+        m_Texture: {fileID: 2800000, guid: 8aa6b0de2fab62c468d9a80c711fac8c, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _ObsMap:
+        m_Texture: {fileID: 2800000, guid: 23fdcf21cac851242875d3550079f99e, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _ObsNormal:
+        m_Texture: {fileID: 2800000, guid: 6b29d606a2b534e46b3fcc0e71c44e64, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    m_Ints: []
+    m_Floats:
+    - _CrustHeight: 0.14
+    - _DigDepth: 3
+    - _EmissionStrength: 1.3
+    - _FieldSize: 20
+    - _FlowSpeed: 0.015
+    - _LavaTiling: 3.5
+    - _ObsTiling: 2.5
+    - _PoolRadius: 9
+    m_Colors:
+    - _Bedrock: {r: 0.07, g: 0.06, b: 0.06, a: 1}
+  m_BuildTextureStacks: []
+  m_AllowLocking: 1

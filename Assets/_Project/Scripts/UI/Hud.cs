@@ -3,13 +3,13 @@ using UnityEngine;
 public class Hud : MonoBehaviour
 {
     public PlayerTools tools;
-    public VolcanoGrid grid;
+    public LavaField field;
 
     GUIStyle label, big;
 
     void OnGUI()
     {
-        if (tools == null || grid == null) return;
+        if (tools == null || field == null) return;
         if (label == null)
         {
             label = new GUIStyle(GUI.skin.label) { fontSize = Mathf.RoundToInt(Screen.height * 0.024f) };
@@ -26,11 +26,11 @@ public class Hud : MonoBehaviour
         // Ilerleme
         float pad = h * 0.025f;
         GUI.color = Color.white;
-        GUI.Label(new Rect(pad, pad, w * 0.5f, h * 0.05f), $"Volkan bosaltildi: %{Mathf.RoundToInt(grid.Progress * 100f)}", label);
+        GUI.Label(new Rect(pad, pad, w * 0.5f, h * 0.05f), $"Volkan bosaltildi: %{Mathf.RoundToInt(field.Progress * 100f)}", label);
         GUI.color = new Color(0f, 0f, 0f, 0.5f);
         GUI.DrawTexture(new Rect(pad, pad + h * 0.05f, w * 0.25f, h * 0.014f), Texture2D.whiteTexture);
         GUI.color = new Color(1f, 0.5f, 0.1f, 1f);
-        GUI.DrawTexture(new Rect(pad, pad + h * 0.05f, w * 0.25f * grid.Progress, h * 0.014f), Texture2D.whiteTexture);
+        GUI.DrawTexture(new Rect(pad, pad + h * 0.05f, w * 0.25f * field.Progress, h * 0.014f), Texture2D.whiteTexture);
         GUI.color = Color.white;
         GUI.Label(new Rect(pad, pad + h * 0.075f, w * 0.5f, h * 0.05f), $"Litik cekirdek: {tools.CoreCount}", label);
 
@@ -41,6 +41,6 @@ public class Hud : MonoBehaviour
         // Kontroller
         string tool = tools.CurrentTool == Tool.Buckets ? "KOVALAR" : "KAZMA";
         GUI.Label(new Rect(pad, h - pad - h * 0.11f, w, h * 0.05f),
-            $"[{tool}]  1: Kovalar  2: Kazma  |  Sol/Sag tik: kullan  |  E: cekirdek al  |  WASD, Shift", label);
+            $"[{tool}]  1: Kovalar  2: Kazma  |  Sol/Sag tik: kullan (kovada basili tut = dok)  |  E: cekirdek al  |  WASD, Shift", label);
     }
 }

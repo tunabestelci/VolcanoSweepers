@@ -47,6 +47,7 @@ public static class VolcanoSweepersSetup
             Art + "/Textures/Pickaxe/Material.001_Normal_OpenGL.png",
             Art + "/Textures/LithicCore/LithicCore_Normal.png",
             Art + "/Textures/ObsidianTile/Obsidian_normal.png",
+            Art + "/Terrain/Volcano_Normal.png",
         };
         string[] linear =
         {
@@ -73,7 +74,7 @@ public static class VolcanoSweepersSetup
 
     class MatSet
     {
-        public Material lava, obsidian, cleared, bubble, bucket, pickaxe, core, magma, water, rock, particle, pondRim;
+        public Material lava, obsidian, cleared, bubble, bucket, pickaxe, core, magma, water, rock, particle, pondRim, waterDrop, lavaCrust;
     }
 
     static Texture2D Tex(string path) => AssetDatabase.LoadAssetAtPath<Texture2D>(path);
@@ -140,6 +141,45 @@ public static class VolcanoSweepersSetup
         m.core = Lit("LithicCore", Color.white, T + "LithicCore/LithicCore_Color.png", T + "LithicCore/LithicCore_Normal.png",
             T + "LithicCore/LithicCore_Metallic.png", smooth: 0.7f);
 
+        // Surekli lav/obsidyen yuzeyi (ozel shader)
+        string lcPath = Mats + "/LavaCrust.mat";
+        var lc = AssetDatabase.LoadAssetAtPath<Material>(lcPath);
+        if (lc == null)
+        {
+            lc = new Material(Shader.Find("VolcanoSweepers/LavaCrust"));
+            AssetDatabase.CreateAsset(lc, lcPath);
+        }
+        lc.shader = Shader.Find("VolcanoSweepers/LavaCrust");
+        lc.SetTexture("_LavaMap", Tex(T + "MagmaBall/Lava_Tile.png"));
+        lc.SetTexture("_ObsMap", Tex(T + "ObsidianTile/Obsidian_basecolor.png"));
+        lc.SetTexture("_ObsNormal", Tex(T + "ObsidianTile/Obsidian_normal.png"));
+        lc.SetTexture("_ObsMS", Tex(T + "ObsidianTile/Obsidian_MetalSmooth.png"));
+        EditorUtility.SetDirty(lc);
+        m.lavaCrust = lc;
+
+        // Su damlasi: seffaf
+        string wdPath = Mats + "/WaterDrop.mat";
+        var wd = AssetDatabase.LoadAssetAtPath<Material>(wdPath);
+        if (wd == null)
+        {
+            wd = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+            AssetDatabase.CreateAsset(wd, wdPath);
+        }
+        wd.SetTexture("_BaseMap", Tex(T + "Water/Water_Base.png"));
+        wd.SetColor("_BaseColor", new Color(0.65f, 0.85f, 1f, 0.6f));
+        wd.SetFloat("_Smoothness", 0.95f);
+        wd.SetFloat("_Metallic", 0f);
+        wd.SetFloat("_Surface", 1f);
+        wd.SetFloat("_Blend", 0f);
+        wd.SetFloat("_SrcBlend", 5f);
+        wd.SetFloat("_DstBlend", 10f);
+        wd.SetFloat("_ZWrite", 0f);
+        wd.SetOverrideTag("RenderType", "Transparent");
+        wd.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+        wd.renderQueue = 3000;
+        EditorUtility.SetDirty(wd);
+        m.waterDrop = wd;
+
         string pPath = Mats + "/Particle.mat";
         var pm = AssetDatabase.LoadAssetAtPath<Material>(pPath);
         if (pm == null)
@@ -187,7 +227,7 @@ public static class VolcanoSweepersSetup
 
     class PrefabSet
     {
-        public GameObject bucket, pickaxe, coreItem, coreVisual, magma;
+        public GameObject bucket, pickaxe, coreItem, coreVisual, magma, waterDrop;
     }
 
     static PrefabSet BuildPrefabs(MatSet m)
@@ -215,11 +255,7 @@ public static class VolcanoSweepersSetup
 
         // Litik cekirdek (yerdeki, alinabilir)
         var coreItem = Wrap("LithicCoreItem", Art + "/Models/LithicCore/LithicCore.obj", 0.28f, CoreEuler, m.core, out _);
-        var rb = coreItem.AddComponent<Rigidbody>();
-        rb.mass = 1f;
-        var sc = coreItem.AddComponent<SphereCollider>();
-        sc.radius = 0.13f;
-        coreItem.AddComponent<LithicCoreItem>();
+        coreItem.AddComponent<LithicCoreItem>().radius = 0.12f;
         ps.coreItem = Save(coreItem, "LithicCoreItem");
 
         // Eldeki gorsel
@@ -229,6 +265,21 @@ public static class VolcanoSweepersSetup
         // Lav damlasi
         var magma = Wrap("MagmaBall", Art + "/Models/MagmaBall/MagmaBall.fbx", 0.35f, BallEuler, m.magma, out _);
         ps.magma = Save(magma, "MagmaBall");
+
+        // Su damlasi (test.zip -> lan.glb)
+        // glb icindeki mesh'leri dogrudan kullan (ic ice prefab olusturma)
+        var drop = new GameObject("WaterDrop");
+        foreach (var obj in AssetDatabase.LoadAllAssetsAtPath(Art + "/Models/Water/WaterDrop.glb"))
+        {
+            var mesh = obj as Mesh;
+            if (mesh == null) continue;
+            var part = new GameObject(mesh.name);
+            part.transform.SetParent(drop.transform, false);
+            part.transform.localScale = Vector3.one * 0.5f;
+            part.AddComponent<MeshFilter>().sharedMesh = mesh;
+            part.AddComponent<MeshRenderer>().sharedMaterial = m.waterDrop;
+        }
+        ps.waterDrop = Save(drop, "WaterDrop");
         return ps;
     }
 
@@ -256,6 +307,7 @@ public static class VolcanoSweepersSetup
             coreItem = AssetDatabase.LoadAssetAtPath<GameObject>(Prefabs + "/LithicCoreItem.prefab"),
             coreVisual = AssetDatabase.LoadAssetAtPath<GameObject>(Prefabs + "/LithicCoreVisual.prefab"),
             magma = AssetDatabase.LoadAssetAtPath<GameObject>(Prefabs + "/MagmaBall.prefab"),
+            waterDrop = AssetDatabase.LoadAssetAtPath<GameObject>(Prefabs + "/WaterDrop.prefab"),
         };
 
         var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
@@ -266,7 +318,7 @@ public static class VolcanoSweepersSetup
         RenderSettings.fog = true;
         RenderSettings.fogMode = FogMode.ExponentialSquared;
         RenderSettings.fogColor = new Color(0.16f, 0.06f, 0.04f);
-        RenderSettings.fogDensity = 0.018f;
+        RenderSettings.fogDensity = 0.006f;
 
         var sunGo = new GameObject("Sun");
         var sun = sunGo.AddComponent<Light>();
@@ -275,26 +327,13 @@ public static class VolcanoSweepersSetup
         sun.intensity = 0.7f;
         sunGo.transform.rotation = Quaternion.Euler(55f, -30f, 0f);
 
-        // Zemin ve duvarlar
+        // Volkan arazisi (kullanicinin yukseklik haritasi)
         var env = new GameObject("Environment").transform;
-        // Yurunebilir gorunmez zemin; gorunen kaya sadece volkan izgarasinin disinda
-        var walk = new GameObject("WalkableGround");
-        walk.transform.SetParent(env, false);
-        walk.transform.position = new Vector3(0f, -0.5f, 0f);
-        walk.AddComponent<BoxCollider>().size = new Vector3(44f, 1f, 44f);
-        Cube("Rock_S", new Vector3(0f, -0.5f, -15f), new Vector3(44f, 1f, 14f), m.rock, env).GetComponent<Collider>().enabled = false;
-        Cube("Rock_N", new Vector3(0f, -0.5f, 15f), new Vector3(44f, 1f, 14f), m.rock, env).GetComponent<Collider>().enabled = false;
-        Cube("Rock_W", new Vector3(-15f, -0.5f, 0f), new Vector3(14f, 1f, 16f), m.rock, env).GetComponent<Collider>().enabled = false;
-        Cube("Rock_E", new Vector3(15f, -0.5f, 0f), new Vector3(14f, 1f, 16f), m.rock, env).GetComponent<Collider>().enabled = false;
-        Cube("VolcanoBase", new Vector3(0f, -0.6f, 0f), new Vector3(16.4f, 1f, 16.4f), m.cleared, env).GetComponent<Collider>().enabled = false;
-        Cube("Wall_N", new Vector3(0f, 2f, 22.5f), new Vector3(46f, 5f, 1f), m.rock, env);
-        Cube("Wall_S", new Vector3(0f, 2f, -22.5f), new Vector3(46f, 5f, 1f), m.rock, env);
-        Cube("Wall_E", new Vector3(22.5f, 2f, 0f), new Vector3(1f, 5f, 46f), m.rock, env);
-        Cube("Wall_W", new Vector3(-22.5f, 2f, 0f), new Vector3(1f, 5f, 46f), m.rock, env);
+        BuildTerrain(m, env);
 
         // Havuz
         var pond = new GameObject("Pond");
-        pond.transform.position = new Vector3(0f, 0f, -14f);
+        pond.transform.position = new Vector3(0f, 0f, -15f);
         var rim = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
         rim.name = "PondRim";
         Object.DestroyImmediate(rim.GetComponent<Collider>());
@@ -311,15 +350,16 @@ public static class VolcanoSweepersSetup
         pw.GetComponent<Collider>().isTrigger = true;
         pw.AddComponent<WaterSource>();
 
-        // Volkan
-        var gridGo = new GameObject("VolcanoGrid");
-        var grid = gridGo.AddComponent<VolcanoGrid>();
-        grid.size = 10;
-        grid.cellSize = 1.6f;
-        grid.lavaMat = m.lava;
-        grid.obsidianMat = m.obsidian;
-        grid.clearedMat = m.cleared;
-        grid.coreItemPrefab = prefabs.coreItem;
+        // Lav havuzu (surekli yuzey, kare yok)
+        var lavaGo = new GameObject("LavaField");
+        lavaGo.transform.position = new Vector3(0f, -0.04f, 0f);
+        lavaGo.AddComponent<MeshFilter>();
+        lavaGo.AddComponent<MeshRenderer>();
+        var field = lavaGo.AddComponent<LavaField>();
+        field.material = m.lavaCrust;
+        field.size = 20f;
+        field.poolRadius = 9f;
+        field.digDepth = 3f;
 
         var glowGo = new GameObject("LavaGlow");
         glowGo.transform.position = new Vector3(0f, 2.5f, 0f);
@@ -329,8 +369,8 @@ public static class VolcanoSweepersSetup
         glow.range = 26f;
         glow.intensity = 60f;
 
-        var amb = gridGo.AddComponent<LavaAmbience>();
-        amb.grid = grid;
+        var amb = lavaGo.AddComponent<LavaAmbience>();
+        amb.field = field;
         amb.bubbleMat = m.bubble;
         amb.magmaBallPrefab = prefabs.magma;
         amb.glowLight = glow;
@@ -339,6 +379,7 @@ public static class VolcanoSweepersSetup
         var sys = new GameObject("Systems");
         var fx = sys.AddComponent<FxConfig>();
         fx.particleMaterial = m.particle;
+        fx.waterDropPrefab = prefabs.waterDrop;
         var sfx = sys.AddComponent<SfxPlayer>();
         sfx.steamHiss = Clip("steam_hiss");
         sfx.waterPour = Clip("water_pour");
@@ -352,7 +393,7 @@ public static class VolcanoSweepersSetup
         // Oyuncu
         var player = new GameObject("Player");
         player.tag = "Player";
-        player.transform.position = new Vector3(0f, 0.05f, -11f);
+        player.transform.position = new Vector3(0f, 0.05f, -12f);
         var cc = player.AddComponent<CharacterController>();
         cc.height = 1.8f;
         cc.radius = 0.35f;
@@ -392,15 +433,16 @@ public static class VolcanoSweepersSetup
         tools.bucketPrefab = prefabs.bucket;
         tools.pickaxePrefab = prefabs.pickaxe;
         tools.coreVisualPrefab = prefabs.coreVisual;
+        tools.coreItemPrefab = prefabs.coreItem;
 
         var hud = sys.AddComponent<Hud>();
         hud.tools = tools;
-        hud.grid = grid;
+        hud.field = field;
 
         var bot = sys.AddComponent<PlaytestBot>();
         bot.player = pc;
         bot.tools = tools;
-        bot.grid = grid;
+        bot.field = field;
 
         EditorSceneManager.SaveScene(scene, ScenePath);
         EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
@@ -419,6 +461,83 @@ public static class VolcanoSweepersSetup
         var report = BuildPipeline.BuildPlayer(new[] { ScenePath }, Path.Combine(outDir, "VolcanoSweepers.exe"),
             BuildTarget.StandaloneWindows64, BuildOptions.None);
         Debug.Log("[VolcanoSweepers] Player build: " + report.summary.result);
+    }
+
+    // ---------- Arazi ----------
+
+    const string TerrainDir = Art + "/Terrain";
+
+    static void BuildTerrain(MatSet m, Transform parent)
+    {
+        // RAW: 1009x1009, 16 bit, little-endian
+        const int src = 1009;
+        byte[] raw = File.ReadAllBytes(TerrainDir + "/Volcano_Height.raw");
+        var h = new float[src * src];
+        float max = 0f;
+        for (int i = 0; i < h.Length; i++)
+        {
+            h[i] = (raw[i * 2] | (raw[i * 2 + 1] << 8)) / 65535f;
+            if (h[i] > max) max = h[i];
+        }
+        for (int i = 0; i < h.Length; i++) h[i] /= max;
+
+        const int res = 1025;
+        const float worldSize = 448f;
+        float heightRange = max * 270f;                 // krater kenari ~35 m yuksekte
+        const float cxPx = 540f, cyPx = 520f;           // krater merkezi (resim koordinati, ustten)
+        float cyT = (src - 1) - cyPx;                   // arazide (alttan) satir; doku ile hizali olsun diye satirlar cevrilir
+        float floorH = h[(int)cyPx * src + (int)cxPx];
+        const float digDepth = 3f;                      // LavaField.digDepth ile ayni
+        float pitDelta = (digDepth + 0.8f) / heightRange;
+
+        float mPerPx = worldSize / (src - 1);
+        var data = new float[res, res];
+        for (int y = 0; y < res; y++)
+            for (int x = 0; x < res; x++)
+            {
+                float fx = x / (float)(res - 1) * (src - 1), fy = y / (float)(res - 1) * (src - 1);
+                float ry = (src - 1) - fy;              // ham veride satir (ustten)
+                int x0 = Mathf.Min((int)fx, src - 2), y0 = Mathf.Min((int)ry, src - 2);
+                float tx = fx - x0, ty = ry - y0;
+                float v = Mathf.Lerp(
+                    Mathf.Lerp(h[y0 * src + x0], h[y0 * src + x0 + 1], tx),
+                    Mathf.Lerp(h[(y0 + 1) * src + x0], h[(y0 + 1) * src + x0 + 1], tx), ty);
+                // Arena: merkezi duzlestir, 26 m'ye kadar tam duz, 44 m'de dogal arazi
+                float dx = (fx - cxPx) * mPerPx, dz = (fy - cyT) * mPerPx;
+                float dist = Mathf.Sqrt(dx * dx + dz * dz);
+                float blend = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(26f, 44f, dist));
+                float hh = Mathf.Lerp(floorH, v, blend);
+                // Lav havuzu icin cukur (LavaField.PoolRadiusAt ile ayni sekil)
+                float th = Mathf.Atan2(dz, dx);
+                float poolR = 9f * (1f + 0.06f * Mathf.Sin(3f * th + 1f) + 0.04f * Mathf.Sin(5f * th + 2f));
+                float pit = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(poolR + 0.1f, poolR + 1.4f, dist));
+                data[y, x] = hh - pit * pitDelta;
+            }
+
+        var td = new TerrainData { heightmapResolution = res };
+        td.size = new Vector3(worldSize, heightRange, worldSize);
+        td.SetHeights(0, 0, data);
+
+        var layer = new TerrainLayer
+        {
+            diffuseTexture = Tex(TerrainDir + "/Volcano_Albedo.png"),
+            normalMapTexture = Tex(TerrainDir + "/Volcano_Normal.png"),
+            tileSize = new Vector2(worldSize, worldSize),
+            smoothness = 0.1f,
+        };
+        AssetDatabase.DeleteAsset(TerrainDir + "/VolcanoLayer.terrainlayer");
+        AssetDatabase.CreateAsset(layer, TerrainDir + "/VolcanoLayer.terrainlayer");
+        td.terrainLayers = new[] { layer };
+        AssetDatabase.DeleteAsset(TerrainDir + "/VolcanoTerrain.asset");
+        AssetDatabase.CreateAsset(td, TerrainDir + "/VolcanoTerrain.asset");
+
+        var go = Terrain.CreateTerrainGameObject(td);
+        go.name = "VolcanoTerrain";
+        go.transform.SetParent(parent, false);
+        // Krater merkezi dunya merkezine; zemin yuksekligi y=0
+        float cx = cxPx * mPerPx, cz = cyT * mPerPx;
+        go.transform.position = new Vector3(-cx, -floorH * heightRange, -cz);
+        go.GetComponent<Terrain>().drawInstanced = true;
     }
 
     // ---------- Onizleme goruntuleri (model yonu kontrolu) ----------

@@ -4,7 +4,7 @@ using UnityEngine;
 // Lavin canli durmasi: kabarciklar, patlamalar, firlayan magma damlalari, isik titremesi
 public class LavaAmbience : MonoBehaviour
 {
-    public VolcanoGrid grid;
+    public LavaField field;
     public Material bubbleMat;
     public GameObject magmaBallPrefab;
     public Light glowLight;
@@ -40,17 +40,10 @@ public class LavaAmbience : MonoBehaviour
             glowLight.intensity = baseIntensity * (1f + 0.15f * Mathf.Sin(Time.time * 3.1f) + 0.1f * Mathf.Sin(Time.time * 7.7f));
     }
 
-    Vector3 RandomPointOn(VolcanoCell c)
-    {
-        Vector2 o = Random.insideUnitCircle * grid.cellSize * 0.4f;
-        return c.transform.position + new Vector3(o.x, -0.03f, o.y);
-    }
-
     void SpawnBubble()
     {
-        var cell = grid.RandomCellInState(CellState.Lava);
-        if (cell == null) return;
-        StartCoroutine(BubbleRoutine(RandomPointOn(cell)));
+        if (field == null || !field.RandomLavaPoint(out var p)) return;
+        StartCoroutine(BubbleRoutine(p));
     }
 
     IEnumerator BubbleRoutine(Vector3 pos)
@@ -78,11 +71,9 @@ public class LavaAmbience : MonoBehaviour
 
     void SpawnSpit()
     {
-        if (magmaBallPrefab == null) return;
-        var from = grid.RandomCellInState(CellState.Lava);
-        var to = grid.RandomCellInState(CellState.Lava);
-        if (from == null || to == null) return;
-        StartCoroutine(SpitRoutine(RandomPointOn(from), RandomPointOn(to)));
+        if (magmaBallPrefab == null || field == null) return;
+        if (!field.RandomLavaPoint(out var from) || !field.RandomLavaPoint(out var to)) return;
+        StartCoroutine(SpitRoutine(from, to));
     }
 
     IEnumerator SpitRoutine(Vector3 a, Vector3 b)
