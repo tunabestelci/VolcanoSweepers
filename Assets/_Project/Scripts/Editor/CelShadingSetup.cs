@@ -25,10 +25,13 @@ public static class CelShadingSetup
         mat.shader = shader;
         mat.SetFloat("_Bands", 4f);
         mat.SetFloat("_Shadow", 0.07f);
-        mat.SetFloat("_Saturation", 1.15f);
-        mat.SetFloat("_Soften", 3.0f);
+        mat.SetFloat("_Saturation", 1.3f);
+        mat.SetFloat("_Soften", 2.2f);
         mat.SetFloat("_OutlineWidth", 1.6f);
         mat.SetFloat("_OutlineThreshold", 0.05f);
+        mat.SetFloat("_Detail", 0.5f);
+        mat.SetFloat("_NormalEdge", 0.3f);
+        mat.SetFloat("_NormalEdgeStrength", 0.9f);
         mat.SetColor("_OutlineColor", new Color(0.035f, 0.015f, 0.012f, 1f));
         EditorUtility.SetDirty(mat);
 
@@ -52,7 +55,7 @@ public static class CelShadingSetup
             feat.passIndex = 0;
             feat.injectionPoint = FullScreenPassRendererFeature.InjectionPoint.AfterRenderingPostProcessing;
             feat.fetchColorBuffer = true;
-            feat.requirements = ScriptableRenderPassInput.Depth | ScriptableRenderPassInput.Color;
+            feat.requirements = ScriptableRenderPassInput.Depth | ScriptableRenderPassInput.Normal | ScriptableRenderPassInput.Color;
             feat.SetActive(true);
             EditorUtility.SetDirty(feat);
 

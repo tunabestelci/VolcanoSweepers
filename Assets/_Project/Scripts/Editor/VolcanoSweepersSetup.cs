@@ -396,18 +396,30 @@ public static class VolcanoSweepersSetup
 
         // Atmosfer
         RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
-        RenderSettings.ambientLight = new Color(0.3f, 0.19f, 0.17f);
+        RenderSettings.ambientLight = new Color(0.27f, 0.17f, 0.22f);
         RenderSettings.fog = true;
         RenderSettings.fogMode = FogMode.ExponentialSquared;
-        RenderSettings.fogColor = new Color(0.2f, 0.07f, 0.05f);
-        RenderSettings.fogDensity = 0.0028f;
+        RenderSettings.fogColor = new Color(0.30f, 0.10f, 0.07f);
+        RenderSettings.fogDensity = 0.0042f;
+        {
+            string skyPath = Mats + "/CelSky.mat";
+            var sky = AssetDatabase.LoadAssetAtPath<Material>(skyPath);
+            if (sky == null) { sky = new Material(Shader.Find("VolcanoSweepers/CelSky")); AssetDatabase.CreateAsset(sky, skyPath); }
+            sky.shader = Shader.Find("VolcanoSweepers/CelSky");
+            sky.SetColor("_Top", new Color(0.05f, 0.012f, 0.035f));
+            sky.SetColor("_Mid", new Color(0.17f, 0.045f, 0.06f));
+            sky.SetColor("_Horizon", new Color(0.50f, 0.16f, 0.07f));
+            sky.SetColor("_Smoke", new Color(0.045f, 0.012f, 0.025f));
+            EditorUtility.SetDirty(sky);
+            RenderSettings.skybox = sky;
+        }
 
         // Cel-shade icin guclu, yonlu ve sert golgeli ana isik: net isik/golge bantlari verir
         var sunGo = new GameObject("Sun");
         var sun = sunGo.AddComponent<Light>();
         sun.type = LightType.Directional;
         sun.color = new Color(1f, 0.78f, 0.62f);
-        sun.intensity = 1.5f;
+        sun.intensity = 0.95f;
         sun.shadows = LightShadows.Hard;
         sun.shadowStrength = 0.9f;
         sun.shadowBias = 0.03f;
@@ -485,7 +497,7 @@ public static class VolcanoSweepersSetup
         cam.fieldOfView = 70f;
         cam.nearClipPlane = 0.05f;
         cam.farClipPlane = 700f;
-        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.clearFlags = CameraClearFlags.Skybox;
         cam.backgroundColor = new Color(0.16f, 0.06f, 0.04f);
         camGo.AddComponent<AudioListener>();
 
@@ -566,7 +578,7 @@ public static class VolcanoSweepersSetup
         }
         for (int i = 0; i < h.Length; i++) h[i] /= max;
 
-        const int res = 1025;
+        const int res = 2049;
         const float worldSize = 448f;
         float heightRange = max * 270f;
         const float cxPx = 540f, cyPx = 520f;           // krater merkezi (resim koordinati, ustten)
@@ -657,7 +669,12 @@ public static class VolcanoSweepersSetup
         AssetDatabase.ImportAsset(TerrainDir + "/LavaBasin.bytes", ImportAssetOptions.ForceUpdate);
         basinAsset = AssetDatabase.LoadAssetAtPath<TextAsset>(TerrainDir + "/LavaBasin.bytes");
 
-        var data = new float[res, res];
+        // ---- Temel yukseklik (kullanicinin haritasi + platform), metre cinsinden ----
+        const float R2 = 200f;                          // arazinin toplam yuksekligi: dis dag halkasi icin pay
+        float cell = worldSize / (res - 1f);
+        float levelM = levelNorm * heightRange;         // lav seviyesinin arazi yerel yuksekligi
+        var baseM = new float[res, res];
+        var padW = new float[res, res];
         for (int y = 0; y < res; y++)
             for (int x = 0; x < res; x++)
             {
@@ -673,14 +690,105 @@ public static class VolcanoSweepersSetup
                 // Istasyon platformu: duz, kraterin kenarinda
                 float pdx = dx - padX, pdz = dz - padZ;
                 float pd = Mathf.Sqrt(pdx * pdx + pdz * pdz);
-                float pw = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(11f, 19f, pd));
+                float pw = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(11f, 16f, pd));
                 v = Mathf.Lerp(v, padH, pw);
 
-                data[y, x] = v;
+                baseM[y, x] = v * heightRange;
+                padW[y, x] = pw;
             }
 
+        // Lav golunun yakini (detay/kaya eklenmeyen bolge): bulaniklastirilmis havuz maskesi
+        var nearBasin = new float[LavaRes * LavaRes];
+        {
+            int nb = LavaRes;
+            var ba = new float[nb * nb];
+            var bb = new float[nb * nb];
+            for (int i = 0; i < ba.Length; i++) ba[i] = basin[i] != 0 ? 1f : 0f;
+            const int rr = 10;
+            for (int pass = 0; pass < 3; pass++)
+            {
+                for (int yy = 0; yy < nb; yy++)
+                {
+                    float sum = 0f;
+                    for (int k = -rr; k <= rr; k++) sum += ba[yy * nb + Mathf.Clamp(k, 0, nb - 1)];
+                    for (int xx = 0; xx < nb; xx++)
+                    {
+                        bb[yy * nb + xx] = sum / (2 * rr + 1);
+                        sum += ba[yy * nb + Mathf.Min(xx + rr + 1, nb - 1)] - ba[yy * nb + Mathf.Max(xx - rr, 0)];
+                    }
+                }
+                for (int xx = 0; xx < nb; xx++)
+                {
+                    float sum = 0f;
+                    for (int k = -rr; k <= rr; k++) sum += bb[Mathf.Clamp(k, 0, nb - 1) * nb + xx];
+                    for (int yy = 0; yy < nb; yy++)
+                    {
+                        ba[yy * nb + xx] = sum / (2 * rr + 1);
+                        sum += bb[Mathf.Min(yy + rr + 1, nb - 1) * nb + xx] - bb[Mathf.Max(yy - rr, 0) * nb + xx];
+                    }
+                }
+            }
+            nearBasin = ba;
+        }
+        float NearBasin(float wx, float wz)
+        {
+            int bx = Mathf.RoundToInt((wx / basinSize + 0.5f) * (LavaRes - 1)), by = Mathf.RoundToInt((wz / basinSize + 0.5f) * (LavaRes - 1));
+            if (bx < 0 || by < 0 || bx >= LavaRes || by >= LavaRes) return 0f;
+            return nearBasin[by * LavaRes + bx];
+        }
+
+        // ---- Keskinlestirme: kaya kabartisi, radyal oluklar, katmanli (strata) basamaklar, dis dag halkasi ----
+        var data = new float[res, res];
+        for (int y = 0; y < res; y++)
+        {
+            int ym = Mathf.Max(y - 1, 0), yp = Mathf.Min(y + 1, res - 1);
+            for (int x = 0; x < res; x++)
+            {
+                int xm = Mathf.Max(x - 1, 0), xp = Mathf.Min(x + 1, res - 1);
+                float hm = baseM[y, x];
+                float gx = (baseM[y, xp] - baseM[y, xm]) / ((xp - xm) * cell);
+                float gz = (baseM[yp, x] - baseM[ym, x]) / ((yp - ym) * cell);
+                float slope = Mathf.Sqrt(gx * gx + gz * gz);
+                float fx = x / (float)(res - 1) * (src - 1), fy = y / (float)(res - 1) * (src - 1);
+                float dx = (fx - cxPx) * mPerPx, dz = (fy - cyT) * mPerPx;
+                float mask = (1f - padW[y, x]) * (1f - TerrainDetail.S(0.002f, 0.09f, NearBasin(dx, dz)));
+                float extra = 0f;
+                if (mask > 0.001f)
+                {
+                    float r = Mathf.Sqrt(dx * dx + dz * dz);
+                    float ang = Mathf.Atan2(dz, dx);
+                    float n1 = TerrainDetail.Ridged(dx * 0.055f, dz * 0.055f, 3);
+                    float n2 = TerrainDetail.Fbm(dx * 0.24f, dz * 0.24f, 2);
+                    float detail = (n1 - 0.45f) * 3.4f + (n2 - 0.5f) * 0.7f;
+                    float steep = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.28f, 0.85f, slope));
+                    float warp = TerrainDetail.Fbm(dx * 0.03f, dz * 0.03f, 2) * 4.5f;
+                    float g = TerrainDetail.Ridged(ang * 15f + warp, r * 0.03f, 2);
+                    float gully = TerrainDetail.S(0.55f, 0.95f, g) * TerrainDetail.S(18f, 40f, r);
+                    float groove = -gully * (1.2f + 2.0f * TerrainDetail.Fbm(dx * 0.02f + 3f, dz * 0.02f, 2)) * steep;
+                    const float stepH = 1.8f;
+                    float q = hm / stepH, fr = q - Mathf.Floor(q);
+                    float tH = (Mathf.Floor(q) + TerrainDetail.S(0.30f, 0.70f, fr)) * stepH;
+                    float strata = (tH - hm) * 0.5f * TerrainDetail.S(0.30f, 0.9f, slope);
+                    // Krater agzinin ust kismi: kirik, dislek siluet
+                    float aboveLava = hm - levelM;
+                    float crest = (TerrainDetail.Ridged(dx * 0.075f + 21f, dz * 0.075f, 3) - 0.32f) * 8f * TerrainDetail.S(6f, 22f, aboveLava);
+                    extra = mask * (detail + groove + strata + crest);
+                }
+                // Haritanin dis kenarinda keskin dag halkasi: bosluga acilan kenar yok, ufuk dagli
+                float e = Mathf.Min(Mathf.Min(x, res - 1 - x), Mathf.Min(y, res - 1 - y)) * cell;
+                float ring = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(12f, 100f, e));
+                if (ring > 0.001f)
+                {
+                    float rn = TerrainDetail.Ridged(dx * 0.011f + 7.3f, dz * 0.011f - 3.1f, 4);
+                    float peaks = Mathf.Pow(rn, 1.7f);
+                    extra += Mathf.Pow(ring, 1.3f) * (18f + 62f * peaks) + ring * (TerrainDetail.Fbm(dx * 0.09f, dz * 0.09f, 3) - 0.5f) * 6f;
+                }
+                data[y, x] = Mathf.Clamp01((hm + extra) / R2);
+            }
+        }
+
         var td = new TerrainData { heightmapResolution = res };
-        td.size = new Vector3(worldSize, heightRange, worldSize);
+        td.size = new Vector3(worldSize, R2, worldSize);
         td.SetHeights(0, 0, data);
 
         // Kuyu govdesi icin arazide delik
@@ -700,32 +808,29 @@ public static class VolcanoSweepersSetup
             td.SetHoles(0, 0, holes);
         }
 
-        var layer = new TerrainLayer
+        // ---- Arazi katmanlari ----
+        string tex = Art + "/Textures/";
+        TerrainDetail.GenerateBasalt(TerrainDir + "/Basalt_Color.png", TerrainDir + "/Basalt_Normal.png");
+        TerrainDetail.GenerateScoria(TerrainDir + "/Scoria_Color.png", TerrainDir + "/Scoria_Normal.png");
+
+        TerrainLayer MakeLayer(string file, Texture2D d, Texture2D n, float tile, float smooth, float nScale)
         {
-            diffuseTexture = Tex(TerrainDir + "/Volcano_Albedo.png"),
-            normalMapTexture = Tex(TerrainDir + "/Volcano_Normal.png"),
-            tileSize = new Vector2(worldSize, worldSize),
-            smoothness = 0.1f,
-        };
-        AssetDatabase.DeleteAsset(TerrainDir + "/VolcanoLayer.terrainlayer");
-        AssetDatabase.CreateAsset(layer, TerrainDir + "/VolcanoLayer.terrainlayer");
-        // Platform zemini: kaya duvar dokusu (saglam tas zemin)
-        var rockLayer = new TerrainLayer
+            string lp = TerrainDir + "/" + file + ".terrainlayer";
+            AssetDatabase.DeleteAsset(lp);
+            var l = new TerrainLayer { diffuseTexture = d, normalMapTexture = n, tileSize = new Vector2(tile, tile), smoothness = smooth, normalScale = nScale };
+            AssetDatabase.CreateAsset(l, lp);
+            return l;
+        }
+        var layer = MakeLayer("VolcanoLayer", Tex(TerrainDir + "/Volcano_Albedo.png"), Tex(TerrainDir + "/Volcano_Normal.png"), worldSize, 0.1f, 1f);
+        var rockLayer = MakeLayer("RockLayer", Tex(tex + "Rock/RockWall_Color.png"), Tex(tex + "Rock/RockWall_Normal.png"), 3.2f, 0.35f, 1.2f);
+        var basaltLayer = MakeLayer("BasaltLayer", Tex(TerrainDir + "/Basalt_Color.png"), Tex(TerrainDir + "/Basalt_Normal.png"), 7f, 0.3f, 1.4f);
+        var scoriaLayer = MakeLayer("ScoriaLayer", Tex(TerrainDir + "/Scoria_Color.png"), Tex(TerrainDir + "/Scoria_Normal.png"), 4.5f, 0.1f, 1.2f);
+        td.terrainLayers = new[] { layer, rockLayer, basaltLayer, scoriaLayer };
         {
-            diffuseTexture = Tex(Art + "/Textures/Rock/RockWall_Color.png"),
-            normalMapTexture = Tex(Art + "/Textures/Rock/RockWall_Normal.png"),
-            tileSize = new Vector2(3.2f, 3.2f),
-            smoothness = 0.35f,
-            normalScale = 1.2f,
-        };
-        AssetDatabase.DeleteAsset(TerrainDir + "/RockLayer.terrainlayer");
-        AssetDatabase.CreateAsset(rockLayer, TerrainDir + "/RockLayer.terrainlayer");
-        td.terrainLayers = new[] { layer, rockLayer };
-        {
-            td.alphamapResolution = 1024;
+            td.alphamapResolution = 2048;
             int ar = td.alphamapResolution;
             Vector3 aorg = new Vector3(-cxPx * mPerPx, 0f, -cyT * mPerPx);
-            var maps = new float[ar, ar, 2];
+            var maps = new float[ar, ar, 4];
             for (int ay = 0; ay < ar; ay++)
                 for (int ax = 0; ax < ar; ax++)
                 {
@@ -734,20 +839,115 @@ public static class VolcanoSweepersSetup
                     float pd2 = Mathf.Sqrt((wx - padX) * (wx - padX) + (wz - padZ) * (wz - padZ));
                     float rw = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(9.4f, 11f, pd2));
 
-                    // Egimli yuzeyler (yamaclar) kaya dokusuyla kaplanir: tek devasa doku yerine her yerde net kaya detayi
                     int hx = Mathf.Clamp(Mathf.RoundToInt((ax + 0.5f) / ar * (res - 1)), 1, res - 2);
                     int hy = Mathf.Clamp(Mathf.RoundToInt((ay + 0.5f) / ar * (res - 1)), 1, res - 2);
-                    float cell = worldSize / (res - 1f);
-                    float gx = (data[hy, hx + 1] - data[hy, hx - 1]) * heightRange / (2f * cell);
-                    float gz = (data[hy + 1, hx] - data[hy - 1, hx]) * heightRange / (2f * cell);
-                    float slopeDeg = Mathf.Atan(Mathf.Sqrt(gx * gx + gz * gz)) * Mathf.Rad2Deg;
-                    float sr = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(22f, 42f, slopeDeg));
-                    float rockTotal = rw + (1f - rw) * sr;
-                    maps[ay, ax, 0] = 1f - rockTotal;
-                    maps[ay, ax, 1] = rockTotal;
+                    float sgx = (data[hy, hx + 1] - data[hy, hx - 1]) * R2 / (2f * cell);
+                    float sgz = (data[hy + 1, hx] - data[hy - 1, hx]) * R2 / (2f * cell);
+                    float slope = Mathf.Sqrt(sgx * sgx + sgz * sgz);
+                    float n = TerrainDetail.Fbm(wx * 0.05f, wz * 0.05f, 3);
+                    float n2 = TerrainDetail.Fbm(wx * 0.21f + 9f, wz * 0.21f, 2);
+
+                    float wB = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.78f, 1.1f, slope + (n - 0.5f) * 0.35f));
+                    // genis koyu bazalt lekeleri: uzaktan da okunan buyuk olcekli renk degisimi
+                    wB = Mathf.Max(wB, TerrainDetail.S(0.57f, 0.66f, TerrainDetail.Fbm(wx * 0.035f + 77f, wz * 0.035f, 3)) * 0.9f);
+                    float wR = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.36f, 0.72f, slope)) * (0.5f + 0.5f * n2) * (1f - wB);
+                    float wS = (1f - Mathf.Max(wB, wR)) * TerrainDetail.S(0.46f, 0.6f, n);
+                    float w0 = Mathf.Max(0f, 1f - wB - wR - wS);
+                    // Duz boyali ana dokunun payini kis: kalan yer curuf/kaya yamalariyla bolunur (yavan yuzey kalmasin)
+                    float moved = w0 * 0.68f; w0 -= moved;
+                    float toS = TerrainDetail.S(0.38f, 0.62f, TerrainDetail.Fbm(wx * 0.09f + 40f, wz * 0.09f, 2));
+                    wS += moved * toS; wR += moved * (1f - toS);
+                    // platform: duz kaya doseme
+                    w0 *= 1f - rw; wB *= 1f - rw; wS *= 1f - rw; wR = wR * (1f - rw) + rw;
+                    float sum = w0 + wR + wB + wS;
+                    maps[ay, ax, 0] = w0 / sum; maps[ay, ax, 1] = wR / sum; maps[ay, ax, 2] = wB / sum; maps[ay, ax, 3] = wS / sum;
                 }
             td.SetAlphamaps(0, 0, maps);
         }
+
+        // ---- Kaya parcalari ve bazalt sutunlari (arazi agaci olarak, GPU instancing) ----
+        {
+            string rockDir = Art + "/Models/Rocks";
+            Directory.CreateDirectory(rockDir);
+            var rockMat = m.rockWall;
+            var protos = new System.Collections.Generic.List<TreePrototype>();
+            var pb0 = TerrainDetail.SavePrefab(rockDir + "/Boulder_A.prefab", TerrainDetail.MakeBoulder("Boulder_A", 11, new Vector3(1.3f, 0.9f, 1.1f)), rockMat);
+            var pb1 = TerrainDetail.SavePrefab(rockDir + "/Boulder_B.prefab", TerrainDetail.MakeBoulder("Boulder_B", 23, new Vector3(1.0f, 1.25f, 1.0f)), rockMat);
+            var pb2 = TerrainDetail.SavePrefab(rockDir + "/Boulder_C.prefab", TerrainDetail.MakeBoulder("Boulder_C", 37, new Vector3(1.6f, 0.7f, 1.2f)), rockMat);
+            var pc0 = TerrainDetail.SavePrefab(rockDir + "/Columns_A.prefab", TerrainDetail.MakeColumns("Columns_A", 5), rockMat);
+            var pc1 = TerrainDetail.SavePrefab(rockDir + "/Columns_B.prefab", TerrainDetail.MakeColumns("Columns_B", 19), rockMat);
+            foreach (var pf in new[] { pb0, pb1, pb2, pc0, pc1 }) protos.Add(new TreePrototype { prefab = pf, bendFactor = 0f });
+            td.treePrototypes = protos.ToArray();
+
+            var trees = new System.Collections.Generic.List<TreeInstance>();
+            var rng = new System.Random(2026);
+            for (int k = 0; k < 60000 && trees.Count < 5500; k++)
+            {
+                float u = (float)rng.NextDouble(), w = (float)rng.NextDouble();
+                int hx = Mathf.Clamp(Mathf.RoundToInt(u * (res - 1)), 1, res - 2);
+                int hy = Mathf.Clamp(Mathf.RoundToInt(w * (res - 1)), 1, res - 2);
+                float wx = (u * worldSize) - cxPx * mPerPx, wz = (w * worldSize) - cyT * mPerPx;
+                float hh = data[hy, hx] * R2;
+                if (NearBasin(wx, wz) > 0.02f) continue;
+                float pdx = wx - padX, pdz = wz - padZ;
+                if (pdx * pdx + pdz * pdz < 24f * 24f) continue;
+                // lav golunun ustune/icine dusen konumlari atla
+                int bx = Mathf.RoundToInt((wx / basinSize + 0.5f) * (LavaRes - 1)), by = Mathf.RoundToInt((wz / basinSize + 0.5f) * (LavaRes - 1));
+                if (bx >= 0 && by >= 0 && bx < LavaRes && by < LavaRes && basin[by * LavaRes + bx] != 0) continue;
+                float sgx = (data[hy, hx + 1] - data[hy, hx - 1]) * R2 / (2f * cell);
+                float sgz = (data[hy + 1, hx] - data[hy - 1, hx]) * R2 / (2f * cell);
+                float slope = Mathf.Sqrt(sgx * sgx + sgz * sgz);
+                float e = Mathf.Min(Mathf.Min(hx, res - 1 - hx), Mathf.Min(hy, res - 1 - hy)) * cell;
+                float ringBoost = 1f - Mathf.InverseLerp(10f, 110f, e);
+                float chance = Mathf.Clamp01(0.25f + slope * 0.8f + ringBoost * 0.5f);
+                if ((float)rng.NextDouble() > chance) continue;
+
+                bool columns = slope > 0.7f && rng.NextDouble() < 0.14;
+                int proto = columns ? 3 + rng.Next(2) : rng.Next(3);
+                float sc = columns ? 0.5f + (float)rng.NextDouble() * 0.5f : 0.35f + Mathf.Pow((float)rng.NextDouble(), 2.6f) * 1.9f * (1f + ringBoost * 1.2f);
+                trees.Add(new TreeInstance
+                {
+                    prototypeIndex = proto,
+                    position = new Vector3(u, hh / R2, w),
+                    widthScale = sc, heightScale = sc * (columns ? 1f : 0.8f + (float)rng.NextDouble() * 0.5f),
+                    rotation = (float)rng.NextDouble() * Mathf.PI * 2f,
+                    color = Color.white, lightmapColor = Color.white,
+                });
+            }
+            // Krater agzi: siluet cizgisini kiran sivri kayalar ve bazalt sutunlari
+            int rim = 0;
+            for (int k = 0; k < 200000 && rim < 1500; k++)
+            {
+                float wx = ((float)rng.NextDouble() - 0.5f) * 260f, wz = ((float)rng.NextDouble() - 0.5f) * 260f;
+                float u = (wx + cxPx * mPerPx) / worldSize, w = (wz + cyT * mPerPx) / worldSize;
+                if (u <= 0.01f || u >= 0.99f || w <= 0.01f || w >= 0.99f) continue;
+                int hx = Mathf.Clamp(Mathf.RoundToInt(u * (res - 1)), 1, res - 2);
+                int hy = Mathf.Clamp(Mathf.RoundToInt(w * (res - 1)), 1, res - 2);
+                float nb = NearBasin(wx, wz);
+                if (nb < 0.0015f || nb > 0.14f) continue;
+                int bx = Mathf.RoundToInt((wx / basinSize + 0.5f) * (LavaRes - 1)), by = Mathf.RoundToInt((wz / basinSize + 0.5f) * (LavaRes - 1));
+                if (bx >= 0 && by >= 0 && bx < LavaRes && by < LavaRes && basin[by * LavaRes + bx] != 0) continue;
+                float hh = data[hy, hx] * R2;
+                float ab = hh - levelM;
+                if (ab < -1.5f || ab > 70f) continue;
+                float pdx = wx - padX, pdz = wz - padZ;
+                if (pdx * pdx + pdz * pdz < 26f * 26f) continue;
+                bool columns = rng.NextDouble() < 0.32;
+                trees.Add(new TreeInstance
+                {
+                    prototypeIndex = columns ? 3 + rng.Next(2) : rng.Next(3),
+                    position = new Vector3(u, hh / R2, w),
+                    widthScale = columns ? 0.7f + (float)rng.NextDouble() * 0.9f : 1.1f + Mathf.Pow((float)rng.NextDouble(), 1.8f) * 2.6f,
+                    heightScale = columns ? 0.7f + (float)rng.NextDouble() * 0.9f : 1.0f + (float)rng.NextDouble() * 2.2f,
+                    rotation = (float)rng.NextDouble() * Mathf.PI * 2f,
+                    color = Color.white, lightmapColor = Color.white,
+                });
+                rim++;
+            }
+            td.SetTreeInstances(trees.ToArray(), true);
+            Debug.Log($"[Terrain] {trees.Count} kaya/sutun yerlestirildi");
+        }
+
         AssetDatabase.DeleteAsset(TerrainDir + "/VolcanoTerrain.asset");
         AssetDatabase.CreateAsset(td, TerrainDir + "/VolcanoTerrain.asset");
 
@@ -757,7 +957,14 @@ public static class VolcanoSweepersSetup
         // Krater merkezi dunya merkezine; lav seviyesi y=0
         float cx0 = cxPx * mPerPx, cz0 = cyT * mPerPx;
         go.transform.position = new Vector3(-cx0, -levelNorm * heightRange, -cz0);
-        go.GetComponent<Terrain>().drawInstanced = true;
+        var terr = go.GetComponent<Terrain>();
+        terr.drawInstanced = true;
+        terr.heightmapPixelError = 1f;            // LOD'la yumusama yok: keskin yuzey
+        terr.basemapDistance = 6000f;             // uzakta da katman dokulari
+        terr.treeDistance = 900f;
+        terr.treeBillboardDistance = 2000f;
+        terr.treeCrossFadeLength = 0f;
+        terr.drawTreesAndFoliage = true;
 
         return new Vector3(padX, 1.5f, padZ);
     }

@@ -81,7 +81,7 @@ Shader "VolcanoSweepers/LavaCrust"
                 float w = sin(mt.x * 0.55 + _Time.y * 0.8) * sin(mt.y * 0.43 - _Time.y * 0.6) * 0.05
                         + sin(mt.x * 0.21 - mt.y * 0.33 + _Time.y * 0.5) * 0.07
                         + sin(mt.x * 1.3 + mt.y * 0.9 + _Time.y * 1.7) * 0.015;
-                w *= (1.0 - cs) * (1.0 - smoothstep(0.85, 0.97, m.g));
+                w *= (1.0 - cs) * smoothstep(0.01, 0.06, m.a - m.g);
                 return -m.g * _DigDepth + cs * _CrustHeight + w;
             }
 
@@ -151,7 +151,7 @@ Shader "VolcanoSweepers/LavaCrust"
                 // Kabuk: gurultuyle duzensiz kenar
                 float noise = SAMPLE_TEXTURE2D(_LavaMap, sampler_LavaMap, meters / 1.7).r;
                 float c = smoothstep(0.28, 0.5, m.r + (noise - 0.5) * 0.28);
-                float lavaAmt = 1.0 - smoothstep(0.88, 0.98, m.g);
+                float lavaAmt = smoothstep(0.004, 0.035, m.a - m.g);
 
                 float2 ouv = meters / _ObsTiling;
                 float3 obs = SAMPLE_TEXTURE2D(_ObsMap, sampler_ObsMap, ouv).rgb;

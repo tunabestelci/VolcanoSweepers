@@ -460,7 +460,7 @@ public class WaterSim : MonoBehaviour
             float t = math.saturate((c - 0.3f) / 0.3f);
             float cs = t * t * (3f - 2f * t);
             float surf = P.baseY - d * P.digDepth + cs * P.crustH;
-            lava = true;
+            lava = surf > th + 0.02f;      // arazi lavin ustundeyse (kurumus kiyi) lav sayilmaz
             return math.max(th, surf);
         }
 

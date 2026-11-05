@@ -12,6 +12,9 @@ Shader "VolcanoSweepers/CelPost"
         _OutlineThreshold("Cizgi esigi", Range(0.005, 0.3)) = 0.05
         _OutlineColor("Cizgi rengi", Color) = (0.035, 0.015, 0.012, 1)
         _OutlineFade("Cizgi solma mesafesi", Float) = 260
+        _Detail("Doku detayi", Range(0, 1.5)) = 0.7
+        _NormalEdge("Kivrim cizgisi esigi (normal)", Range(0.05, 1)) = 0.38
+        _NormalEdgeStrength("Kivrim cizgisi gucu", Range(0, 1)) = 0.9
     }
 
     SubShader
@@ -30,8 +33,9 @@ Shader "VolcanoSweepers/CelPost"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.core/Runtime/Utilities/Blit.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareNormalsTexture.hlsl"
 
-            float _Bands, _Shadow, _Saturation, _Soften, _OutlineWidth, _OutlineThreshold, _OutlineFade;
+            float _Bands, _Shadow, _Saturation, _Soften, _OutlineWidth, _OutlineThreshold, _OutlineFade, _NormalEdge, _NormalEdgeStrength, _Detail;
             float4 _OutlineColor;
 
             float3 Src(float2 uv) { return SAMPLE_TEXTURE2D_X_LOD(_BlitTexture, sampler_LinearClamp, uv, 0).rgb; }
@@ -60,6 +64,9 @@ Shader "VolcanoSweepers/CelPost"
                 float q = (floor(x) + smoothstep(0.5 - fw, 0.5 + fw, frac(x))) / _Bands;
                 float Lq = lerp(_Shadow, 1.0, pow(q, 1.0 / g));
                 float3 col = c * clamp((Lq + 0.01) / (L + 0.01), 0.0, 3.0);
+                // Ince doku detayi bantlarin icinde kalsin (yuksek frekansli parlaklik farki geri eklenir)
+                float Lraw = dot(Src(uv), float3(0.299, 0.587, 0.114));
+                col *= 1.0 + clamp((Lraw - L) / (L + 0.12), -0.5, 0.5) * _Detail;
                 float gray = dot(col, float3(0.299, 0.587, 0.114));
                 col = max(0.0, lerp(gray.xxx, col, _Saturation));
 
@@ -73,6 +80,17 @@ Shader "VolcanoSweepers/CelPost"
                 float lap = abs(iR + iL - 2.0 * i0) + abs(iU + iD - 2.0 * i0);
                 float edge = smoothstep(_OutlineThreshold, _OutlineThreshold * 2.2, lap / max(i0, 1e-4));
                 float dist = rcp(max(i0, 1e-4));
+
+                // Kivrim cizgisi: komsu normaller birbirinden cok ayriliyorsa (kaya sirtlari, keskin kenarlar)
+                float3 n0 = SampleSceneNormals(uv);
+                float3 nR = SampleSceneNormals(uv + float2(o.x, 0));
+                float3 nL = SampleSceneNormals(uv - float2(o.x, 0));
+                float3 nU = SampleSceneNormals(uv + float2(0, o.y));
+                float3 nD = SampleSceneNormals(uv - float2(0, o.y));
+                float nDiff = max(max(1.0 - dot(n0, nR), 1.0 - dot(n0, nL)), max(1.0 - dot(n0, nU), 1.0 - dot(n0, nD)));
+                float validN = step(0.5, length(n0)) * step(0.5, length(nR)) * step(0.5, length(nL)) * step(0.5, length(nU)) * step(0.5, length(nD));
+                float nEdge = smoothstep(_NormalEdge, _NormalEdge * 1.6, nDiff) * validN * _NormalEdgeStrength;
+                edge = max(edge, nEdge);
                 edge *= 1.0 - smoothstep(_OutlineFade * 0.6, _OutlineFade, dist);
                 col = lerp(col, _OutlineColor.rgb, edge);
 
