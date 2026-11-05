@@ -19,6 +19,18 @@ public class Hud : MonoBehaviour
 
         float w = Screen.width, h = Screen.height;
 
+        // Yanma: kenarlardan kirmizi, olunce tam kirmizi/siyah ekran
+        var pc = tools.player;
+        if (pc != null && (pc.Burn > 0.01f || pc.DeathFade > 0.01f))
+        {
+            float a = Mathf.Max(pc.Burn * 0.55f, pc.DeathFade);
+            GUI.color = new Color(pc.DeathFade > 0.01f ? 0.25f : 1f, pc.DeathFade > 0.01f ? 0f : 0.2f, 0f, a);
+            GUI.DrawTexture(new Rect(0f, 0f, w, h), Texture2D.whiteTexture);
+            GUI.color = Color.white;
+            string msg = pc.DeathFade > 0.01f ? "Yandin!" : "LAV! Zipla / uzaklas!";
+            GUI.Label(new Rect(0f, h * 0.4f, w, h * 0.08f), msg, big);
+        }
+
         // Nisangah
         GUI.color = new Color(1f, 1f, 1f, 0.85f);
         GUI.DrawTexture(new Rect(w / 2f - 2f, h / 2f - 2f, 4f, 4f), Texture2D.whiteTexture);

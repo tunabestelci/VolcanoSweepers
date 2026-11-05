@@ -310,7 +310,7 @@ public class WaterSim : MonoBehaviour
             switch (info.x)
             {
                 case 1:   // lava
-                    if (field != null) field.AddCrust(p, 0.32f, crustPerParticle);
+                    if (field != null) field.AddCrust(p, 0.85f, crustPerParticle * 1.2f);
                     lavaHits++;
                     lavaSum += p;
                     break;

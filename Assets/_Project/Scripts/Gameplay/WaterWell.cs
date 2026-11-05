@@ -31,7 +31,7 @@ public class WaterWell : MonoBehaviour
 
     // Pompa sesi kaydinda iki pompa darbesi ~4.4 sn; kova inis/cikis suresi buna gore ayarli
     public const float TravelTime = 4.4f;
-    const float PumpStart = 2.2f, PumpLoopEnd = 6.6f;
+    const float PumpStart = 0.5f, PumpLoopEnd = 2.4f;
     const float FillTime = 1.2f;
 
     enum S { Top, Lowering, Hanging, Filling, Down, Raising }

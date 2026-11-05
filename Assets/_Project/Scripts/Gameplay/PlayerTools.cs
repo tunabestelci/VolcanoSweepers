@@ -365,7 +365,7 @@ public class PlayerTools : MonoBehaviour
         Vector3 liftPos = new Vector3(h == left ? 0.12f : -0.12f, 0.2f, 0.28f);
         Vector3 startEul = new Vector3(25f, 0f, 0f);
 
-        yield return Tween(h, Vector3.zero, liftPos, Vector3.zero, startEul, 0.35f);
+        yield return Tween(h, Vector3.zero, liftPos, Vector3.zero, startEul, 0.12f);
 
         var bw = h.item != null ? h.item.GetComponentInChildren<BucketWater>(true) : null;
         var body = h.item != null ? h.item.transform.Find("WaterBody") : null;
@@ -381,7 +381,7 @@ public class PlayerTools : MonoBehaviour
             bool held = mouse != null && (h == right ? mouse.leftButton.isPressed : mouse.rightButton.isPressed);
             if (!held && !botHoldPour) break;
 
-            tilt = Mathf.MoveTowards(tilt, maxTilt, 65f * Time.deltaTime);
+            tilt = Mathf.MoveTowards(tilt, maxTilt, 420f * Time.deltaTime);
             h.animPos = liftPos;
             h.animEuler = new Vector3(tilt, 0f, 0f);
 
@@ -409,7 +409,7 @@ public class PlayerTools : MonoBehaviour
                 dFill = q * Time.deltaTime / Mathf.Max(vol, 1e-5f);
             }
             // Kova cok egilince kalan su da (taban yukselince) boslasin
-            if (tilt > 85f) dFill += Time.deltaTime * 1.3f * Mathf.InverseLerp(85f, 118f, tilt);
+            if (tilt > 85f) dFill += Time.deltaTime * 2.2f * Mathf.InverseLerp(85f, 118f, tilt);
             dFill = Mathf.Min(dFill, h.fill);
 
             if (dFill > 0f)
@@ -424,11 +424,14 @@ public class PlayerTools : MonoBehaviour
                 float width = Mathf.Max(0.07f, R * 1.1f);
                 for (int i = 0; i < n; i++)
                 {
-                    // Genis, yuvarlak yayilim: acilan bir demet, menzil de degisken (daha buyuk alana sacilir)
+                    // Cok genis, yuvarlak yayilim: her parcacik halka/disk uzerinde farkli menzil ve yana aciyla firlar
                     Vector2 d = Random.insideUnitCircle;
                     Vector3 off = lat * d.x + Vector3.up * d.y;
                     Vector3 spawn = lip + off * width * 0.9f;
-                    Vector3 v = fwd * (vOut * Random.Range(0.7f, 1.35f)) + Vector3.down * 0.2f + off * 2.1f + Random.insideUnitSphere * 0.3f;
+                    float ang = Random.Range(-1f, 1f) * 0.75f;                     // ~43 derece yana acilim
+                    Vector3 dir = Quaternion.AngleAxis(ang * Mathf.Rad2Deg, Vector3.up) * fwd;
+                    float reach = Mathf.Sqrt(Random.value);                         // diski dolduran menzil dagilimi
+                    Vector3 v = dir * (vOut * Mathf.Lerp(0.35f, 1.9f, reach)) + Vector3.up * Random.Range(0.2f, 1.6f) + off * 2.4f + Random.insideUnitSphere * 0.4f;
                     WaterSim.Emit(spawn + v * (Time.deltaTime * Random.value), v);
                 }
                 hissTimer -= Time.deltaTime;

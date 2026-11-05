@@ -65,6 +65,38 @@ public class PlayerController : MonoBehaviour
         shakeTime = time;
     }
 
+    bool ccGrounded;
+    public float Burn { get; private set; }     // 0..1, 1 = oldun
+    public float DeathFade { get; private set; }
+    float deadTimer;
+
+    // Erimis lavin (kabuk yok) ustunde durmak yakar; yeterince yanarsan baslangica donersin
+    void UpdateBurn(float ground)
+    {
+        var field = LavaField.I;
+        if (deadTimer > 0f)
+        {
+            deadTimer -= Time.deltaTime;
+            DeathFade = Mathf.Clamp01(deadTimer);
+            return;
+        }
+        bool inLava = field != null && field.IsLava(transform.position) && field.CrustAt(transform.position) < 0.3f
+                      && transform.position.y <= ground + 0.45f;
+        if (inLava)
+        {
+            Burn = Mathf.Min(1f, Burn + Time.deltaTime / 1.1f);
+            Shake(0.012f + Burn * 0.03f, 0.1f);
+            if (Burn >= 1f)
+            {
+                Burn = 0f;
+                deadTimer = 1.4f;
+                verticalVel = 0f;
+                Teleport(spawn);
+            }
+        }
+        else Burn = Mathf.Max(0f, Burn - Time.deltaTime * 0.8f);
+    }
+
     void Update()
     {
         var kb = Keyboard.current;
@@ -96,7 +128,8 @@ public class PlayerController : MonoBehaviour
         // Dikey hareket: lav yuzeyini (kazildikca alcalir) veya araziyi takip et
         float ground = GroundHeight(transform.position);
         float y = transform.position.y;
-        bool grounded = y <= ground + 0.05f && verticalVel <= 0.01f;
+        // Platform/kaya gibi collider'li yuzeylerde de zipla: CharacterController'in zemin bilgisi de sayilir
+        bool grounded = (y <= ground + 0.05f || cc.isGrounded || ccGrounded) && verticalVel <= 0.01f;
         if (grounded && kb.spaceKey.wasPressedThisFrame)
         {
             verticalVel = jumpSpeed;
@@ -113,6 +146,9 @@ public class PlayerController : MonoBehaviour
             move.y = (ground - y) * 12f;   // basamak cikma / yumusak inis
         }
         cc.Move(move * Time.deltaTime);
+        ccGrounded = cc.isGrounded;
+
+        UpdateBurn(ground);
 
         // Alandan cok uzaklasma
         Vector3 flat = transform.position - spawn;

@@ -454,7 +454,7 @@ public static class VolcanoSweepersSetup
         var sfx = sys.AddComponent<SfxPlayer>();
         // Lav sesleri: yalnizca kullanicinin verdigi "heavy bubbles" kaydi (su lava dokulunce)
         sfx.waterPour = AssetDatabase.LoadAssetAtPath<AudioClip>(Sfx + "water_splash.mp3");       // su dokme: water splash
-        sfx.wellPump = AssetDatabase.LoadAssetAtPath<AudioClip>(Sfx + "well_pump.mp3");          // kuyudan su cekme: water pump
+        sfx.wellPump = AssetDatabase.LoadAssetAtPath<AudioClip>(Sfx + "well_crank.mp3");         // kuyu cikrigi: roulette wheel
         sfx.bucketPour = AssetDatabase.LoadAssetAtPath<AudioClip>(Sfx + "bucket_pour.mp3");      // cekilen suyu kovaya alma: water pouring
         sfx.pickaxeHit = Clip("pickaxe_hit");
         sfx.obsidianBreak = Clip("obsidian_break");
