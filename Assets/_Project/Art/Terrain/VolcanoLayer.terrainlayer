@@ -7,7 +7,7 @@ TerrainLayer:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_Name: VolcanoLayer
-  m_DiffuseTexture: {fileID: 2800000, guid: dab5c1f97a024244f91d305865932dc8, type: 3}
+  m_DiffuseTexture: {fileID: 2800000, guid: 20888ab0151b3ca479f7d2c9b061fd50, type: 3}
   m_NormalMapTexture: {fileID: 2800000, guid: ff38d0cb9970a1a4ca9315c311b84c36, type: 3}
   m_MaskMapTexture: {fileID: 0}
   m_TileSize: {x: 448, y: 448}

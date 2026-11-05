@@ -90,9 +90,12 @@ Shader "VolcanoSweepers/CelPost"
                 float nDiff = max(max(1.0 - dot(n0, nR), 1.0 - dot(n0, nL)), max(1.0 - dot(n0, nU), 1.0 - dot(n0, nD)));
                 float validN = step(0.5, length(n0)) * step(0.5, length(nR)) * step(0.5, length(nL)) * step(0.5, length(nU)) * step(0.5, length(nD));
                 float nEdge = smoothstep(_NormalEdge, _NormalEdge * 1.6, nDiff) * validN * _NormalEdgeStrength;
+                nEdge *= 1.0 - smoothstep(25.0, 95.0, dist);          // kivrim cizgileri yalniz yakinda: uzak dagda benek olmasin
                 edge = max(edge, nEdge);
+                edge *= lerp(1.0, 0.55, smoothstep(70.0, 240.0, dist));  // uzak siluet cizgisi inceleir
                 edge *= 1.0 - smoothstep(_OutlineFade * 0.6, _OutlineFade, dist);
-                col = lerp(col, _OutlineColor.rgb, edge);
+                float3 edgeCol = lerp(_OutlineColor.rgb, float3(0.16, 0.06, 0.05), smoothstep(60.0, 220.0, dist));   // uzakta sisle karisir
+                col = lerp(col, edgeCol, edge);
 
                 return half4(col, 1);
             }

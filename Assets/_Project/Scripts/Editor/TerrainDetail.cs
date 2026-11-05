@@ -170,6 +170,149 @@ public static class TerrainDetail
         WriteTexture(colorPath, normalPath, col, hgt, N, 10f);
     }
 
+    // ---------- Thread-safe gurultu (paralel pisirme icin) ----------
+
+    static float WN(float x, float y, int seed)
+    {
+        int ix = Mathf.FloorToInt(x), iy = Mathf.FloorToInt(y);
+        float fx = x - ix, fy = y - iy;
+        fx = fx * fx * (3f - 2f * fx); fy = fy * fy * (3f - 2f * fy);
+        float a = Mathf.Lerp(Rnd(ix, iy, seed), Rnd(ix + 1, iy, seed), fx);
+        float b = Mathf.Lerp(Rnd(ix, iy + 1, seed), Rnd(ix + 1, iy + 1, seed), fx);
+        return Mathf.Lerp(a, b, fy);
+    }
+
+    static float WFbm(float x, float y, int octaves, int seed)
+    {
+        float sum = 0f, amp = 0.5f, norm = 0f;
+        for (int i = 0; i < octaves; i++)
+        {
+            sum += WN(x, y, seed + i * 13) * amp; norm += amp;
+            x = x * 2.03f + 17.1f; y = y * 2.03f - 9.7f; amp *= 0.5f;
+        }
+        return sum / norm;
+    }
+
+    // ---------- Kullanicinin eski albedo dokusunun USTUNE detay pisirme ----------
+    // Eski doku (Volcano_Albedo) yuksek cozunurluge acilir; egim, girinti/cikinti, katman (strata) ve ince tane detayi
+    // ayni renk paletinin uzerine ince bir modulasyon olarak islenir. Yumusaklik korunur: sert kontrast yok.
+    public static Color BakeAlbedo(string srcPath, string outPath, int N, float[,] data, float[,] slopeMap, float[,] concMap,
+        int res, float worldSize, float R2, float ox, float oz, System.Func<float, float, float> nearBasin)
+    {
+        var src = new Texture2D(2, 2, TextureFormat.RGB24, false);
+        src.LoadImage(File.ReadAllBytes(srcPath));
+        int sw = src.width, sh = src.height;
+        var sp = src.GetPixels32();
+        Object.DestroyImmediate(src);
+
+        var outp = new Color32[N * N];
+        double rSum = 0, gSum = 0, bSum = 0; long cnt = 0;
+        var lockObj = new object();
+
+        System.Threading.Tasks.Parallel.For(0, N, py =>
+        {
+            double lr = 0, lg = 0, lb = 0; long lc = 0;
+            float v = (py + 0.5f) / N;
+            for (int px = 0; px < N; px++)
+            {
+                float u = (px + 0.5f) / N;
+                // eski doku (bilinear)
+                float fx = u * (sw - 1), fy = v * (sh - 1);
+                int x0 = Mathf.Min((int)fx, sw - 2), y0 = Mathf.Min((int)fy, sh - 2);
+                float tx = fx - x0, ty = fy - y0;
+                Color32 c00 = sp[y0 * sw + x0], c10 = sp[y0 * sw + x0 + 1], c01 = sp[(y0 + 1) * sw + x0], c11 = sp[(y0 + 1) * sw + x0 + 1];
+                float r = Mathf.Lerp(Mathf.Lerp(c00.r, c10.r, tx), Mathf.Lerp(c01.r, c11.r, tx), ty) / 255f;
+                float g = Mathf.Lerp(Mathf.Lerp(c00.g, c10.g, tx), Mathf.Lerp(c01.g, c11.g, tx), ty) / 255f;
+                float b = Mathf.Lerp(Mathf.Lerp(c00.b, c10.b, tx), Mathf.Lerp(c01.b, c11.b, tx), ty) / 255f;
+
+                // arazi verisi (bilinear)
+                float hx = u * (res - 1), hy = v * (res - 1);
+                int ix = Mathf.Min((int)hx, res - 2), iy = Mathf.Min((int)hy, res - 2);
+                float ax = hx - ix, ay = hy - iy;
+                float hm = Mathf.Lerp(Mathf.Lerp(data[iy, ix], data[iy, ix + 1], ax), Mathf.Lerp(data[iy + 1, ix], data[iy + 1, ix + 1], ax), ay) * R2;
+                float slope = Mathf.Lerp(Mathf.Lerp(slopeMap[iy, ix], slopeMap[iy, ix + 1], ax), Mathf.Lerp(slopeMap[iy + 1, ix], slopeMap[iy + 1, ix + 1], ax), ay);
+                float conc = Mathf.Lerp(Mathf.Lerp(concMap[iy, ix], concMap[iy, ix + 1], ax), Mathf.Lerp(concMap[iy + 1, ix], concMap[iy + 1, ix + 1], ax), ay);
+
+                float wx = u * worldSize - ox, wz = v * worldSize - oz;
+                float steep = S(0.40f, 1.15f, slope);
+                float flat = 1f - steep;
+
+                // yamaclarda dogal kaya tonuna dogru yumusak gecis (eski renk bozulmaz, %55'e kadar)
+                float grain1 = WFbm(wx * 2.4f, wz * 2.4f, 3, 3);
+                float grain2 = WFbm(wx * 0.5f + 40f, wz * 0.5f, 3, 7);
+                float grain3 = WFbm(wx * 0.085f - 15f, wz * 0.085f, 3, 11);
+                float lum0 = 0.299f * r + 0.587f * g + 0.114f * b;
+                float rockR = 0.30f + 0.10f * grain3, rockG = 0.22f + 0.07f * grain3, rockB = 0.19f + 0.06f * grain3;
+                float mixRock = steep * (0.35f + 0.25f * grain2);
+                r = Mathf.Lerp(r, rockR * (0.8f + lum0), mixRock);
+                g = Mathf.Lerp(g, rockG * (0.8f + lum0), mixRock);
+                b = Mathf.Lerp(b, rockB * (0.8f + lum0), mixRock);
+
+                // katmanli kaya (strata): dalgali yatay seritler, yalniz dik yuzeylerde ve cok hafif
+                float band = 0.5f + 0.5f * Mathf.Sin((hm + (grain3 - 0.5f) * 2.4f) * (2f * Mathf.PI / 1.7f));
+                float bandMod = 1f + (band - 0.5f) * 0.20f * steep;
+
+                // girinti (catlak/olluk) koyu, cikinti (sirt) hafif acik
+                float cav = Mathf.Clamp(conc * 0.55f, -0.14f, 0.40f);
+                float ao = 1f - Mathf.Max(0f, cav) * (0.55f + 0.45f * steep) + Mathf.Max(0f, -cav) * 0.7f;
+
+                // ince/orta/genis olcekli tane: dusuk kontrast, puruzsuz
+                float grainMod = 1f + (grain1 - 0.5f) * 0.16f + (grain2 - 0.5f) * 0.28f + (grain3 - 0.5f) * (0.20f + 0.30f * flat);
+                float mod = bandMod * ao * grainMod * Mathf.Lerp(0.82f, 1f, steep);   // duz, gunes alan yerler beyazlasmasin
+
+                // duz yerlerde ince kul tozu (hafif sicak aydinlik)
+                float dust = flat * S(0.45f, 0.75f, grain3) * 0.10f;
+                r = r * mod + dust * 0.9f * 0.25f; g = g * mod + dust * 0.6f * 0.25f; b = b * mod + dust * 0.45f * 0.25f;
+
+                // lav golune yakin duvarlar isiktan kararmis
+                float near = nearBasin(wx, wz);
+                float scorch = 1f - 0.38f * S(0.04f, 0.45f, near);
+                r *= scorch; g *= scorch; b *= scorch;
+
+                var col = new Color32((byte)(Mathf.Clamp01(r) * 255f), (byte)(Mathf.Clamp01(g) * 255f), (byte)(Mathf.Clamp01(b) * 255f), 255);
+                outp[py * N + px] = col;
+                if ((px & 7) == 0 && (py & 7) == 0) { lr += col.r; lg += col.g; lb += col.b; lc++; }
+            }
+            lock (lockObj) { rSum += lr; gSum += lg; bSum += lb; cnt += lc; }
+        });
+
+        var tex = new Texture2D(N, N, TextureFormat.RGB24, false);
+        tex.SetPixels32(outp);
+        File.WriteAllBytes(outPath, tex.EncodeToJPG(93));
+        Object.DestroyImmediate(tex);
+        AssetDatabase.ImportAsset(outPath, ImportAssetOptions.ForceUpdate);
+        var ti = AssetImporter.GetAtPath(outPath) as TextureImporter;
+        if (ti != null)
+        {
+            ti.maxTextureSize = 4096;
+            ti.anisoLevel = 8;
+            ti.textureCompression = TextureImporterCompression.Compressed;
+            ti.SaveAndReimport();
+        }
+        return new Color((float)(rSum / cnt / 255.0), (float)(gSum / cnt / 255.0), (float)(bSum / cnt / 255.0), 1f);
+    }
+
+    // Yakin plan icin kul/toprak detay dokusu: ortalama rengi ana dokuyla ayni, bu yuzden uzaktan fark edilmez
+    public static void GenerateAsh(string colorPath, string normalPath, Color mean)
+    {
+        const int N = 512;
+        var col = new Color[N * N]; var hgt = new float[N * N];
+        for (int y = 0; y < N; y++)
+            for (int x = 0; x < N; x++)
+            {
+                float u = x / (float)N, v = y / (float)N;
+                Voronoi(u, v, 36, 21, out float f1, out float f2, out int cx, out int cy);
+                float pebble = Mathf.Clamp01(1f - f1 * 1.25f);
+                float tone = Rnd(cx, cy, 77);
+                float broad = TFbm(u, v, 8, 4, 31);
+                float fine = TFbm(u, v, 64, 3, 41);
+                float lum = 1f + (tone - 0.5f) * 0.22f + (broad - 0.5f) * 0.30f + (fine - 0.5f) * 0.18f - (1f - S(0f, 0.2f, f2 - f1)) * 0.10f;
+                col[y * N + x] = new Color(mean.r * lum, mean.g * lum, mean.b * lum, 1f);
+                hgt[y * N + x] = pebble * 0.55f + broad * 0.30f + fine * 0.15f;
+            }
+        WriteTexture(colorPath, normalPath, col, hgt, N, 9f);
+    }
+
     // ---------- Dusuk poligonlu modeller ----------
 
     static void Add(List<Vector3> verts, List<Vector3> norms, List<Vector2> uvs, List<int> tris, Vector3 a, Vector3 b, Vector3 c, float uvScale)
@@ -196,7 +339,7 @@ public static class TerrainDetail
         return m;
     }
 
-    // Yuzu keskin, tabani duz, cokgen bir kaya
+    // Tabani duz, yuzu yumusak normalli dogal kaya (faset cizgisi yok)
     public static Mesh MakeBoulder(string name, int seed, Vector3 stretch)
     {
         float t = (1f + Mathf.Sqrt(5f)) / 2f;
@@ -214,38 +357,46 @@ public static class TerrainDetail
             new[]{3,9,4}, new[]{3,4,2}, new[]{3,2,6}, new[]{3,6,8}, new[]{3,8,9},
             new[]{4,9,5}, new[]{2,4,11}, new[]{6,2,10}, new[]{8,6,7}, new[]{9,8,1},
         };
-        // bir kademe bolme
-        var cache = new Dictionary<long, int>();
-        System.Func<int, int, int> mid = (a, b) =>
+        for (int level = 0; level < 2; level++)
         {
-            long k = a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
-            if (cache.TryGetValue(k, out int idx)) return idx;
-            p.Add(((p[a] + p[b]) * 0.5f).normalized);
-            cache[k] = p.Count - 1;
-            return p.Count - 1;
-        };
-        var f2 = new List<int[]>();
-        foreach (var tr in f)
-        {
-            int a = mid(tr[0], tr[1]), b = mid(tr[1], tr[2]), c = mid(tr[2], tr[0]);
-            f2.Add(new[] { tr[0], a, c }); f2.Add(new[] { tr[1], b, a }); f2.Add(new[] { tr[2], c, b }); f2.Add(new[] { a, b, c });
+            var cache = new Dictionary<long, int>();
+            System.Func<int, int, int> mid = (a2, b2) =>
+            {
+                long k = a2 < b2 ? ((long)a2 << 32) | (uint)b2 : ((long)b2 << 32) | (uint)a2;
+                if (cache.TryGetValue(k, out int idx)) return idx;
+                p.Add(((p[a2] + p[b2]) * 0.5f).normalized);
+                cache[k] = p.Count - 1;
+                return p.Count - 1;
+            };
+            var nf = new List<int[]>();
+            foreach (var tr in f)
+            {
+                int m0 = mid(tr[0], tr[1]), m1 = mid(tr[1], tr[2]), m2 = mid(tr[2], tr[0]);
+                nf.Add(new[] { tr[0], m0, m2 }); nf.Add(new[] { tr[1], m1, m0 }); nf.Add(new[] { tr[2], m2, m1 }); nf.Add(new[] { m0, m1, m2 });
+            }
+            f = nf;
         }
-        // bozulma: dusuk frekansli kabartilar + keskin faset
         var rnd = new System.Random(seed);
         float ox = (float)rnd.NextDouble() * 50f, oy = (float)rnd.NextDouble() * 50f, oz = (float)rnd.NextDouble() * 50f;
-        var q = new Vector3[p.Count];
+        var verts = new List<Vector3>(); var uvs = new List<Vector2>();
         for (int i = 0; i < p.Count; i++)
         {
             Vector3 u = p[i];
-            float n = (Perlin(u.x * 1.6f + ox, u.y * 1.6f + oy) + Perlin(u.y * 1.6f + oy, u.z * 1.6f + oz) + Perlin(u.z * 1.6f + oz, u.x * 1.6f + ox)) / 3f;
-            float r = 0.72f + (n - 0.5f) * 1.1f + ((i * 2654435761u) % 100) / 100f * 0.12f;
+            float big = (Perlin(u.x * 1.3f + ox, u.y * 1.3f + oy) + Perlin(u.y * 1.3f + oy, u.z * 1.3f + oz) + Perlin(u.z * 1.3f + oz, u.x * 1.3f + ox)) / 3f;
+            float small = (Perlin(u.x * 4.1f + oz, u.y * 4.1f + ox) + Perlin(u.y * 4.1f + oz, u.z * 4.1f + oy)) * 0.5f;
+            float r = 0.78f + (big - 0.5f) * 0.9f + (small - 0.5f) * 0.22f;
             Vector3 w = new Vector3(u.x * stretch.x, u.y * stretch.y, u.z * stretch.z) * r;
-            w.y = Mathf.Max(w.y, -0.38f * stretch.y);     // tabani duz: yere oturur
-            q[i] = w;
+            w.y = Mathf.Max(w.y, -0.34f * stretch.y);
+            verts.Add(w);
+            uvs.Add(new Vector2(w.x + w.z * 0.5f, w.y + w.z * 0.5f) * 0.6f);
         }
-        var v = new List<Vector3>(); var nn = new List<Vector3>(); var uv = new List<Vector2>(); var tt = new List<int>();
-        foreach (var tr in f2) Add(v, nn, uv, tt, q[tr[0]], q[tr[1]], q[tr[2]], 0.55f);
-        return Finish(name, v, nn, uv, tt);
+        var tris = new List<int>();
+        foreach (var tr in f) { tris.Add(tr[0]); tris.Add(tr[1]); tris.Add(tr[2]); }
+        var m = new Mesh { name = name };
+        m.SetVertices(verts); m.SetUVs(0, uvs); m.SetTriangles(tris, 0);
+        m.RecalculateNormals();
+        m.RecalculateBounds();
+        return m;
     }
 
     // Bazalt sutun kumesi: farkli boyda, hafif egik, ustu egimli altigen prizmalar
