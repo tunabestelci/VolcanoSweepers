@@ -205,6 +205,22 @@ public static class TerrainDetail
         var sp = src.GetPixels32();
         Object.DestroyImmediate(src);
 
+        // Duz zeminin ortalama rengi (yakin plan detay dokulari bu renkte uretilir: uzaktan fark edilmez)
+        double mr = 0, mg = 0, mb = 0; long mc = 0;
+        for (int yy = 0; yy < sh; yy += 3)
+            for (int xx = 0; xx < sw; xx += 3)
+            {
+                float uu = (xx + 0.5f) / sw, vv = (yy + 0.5f) / sh;
+                int iy2 = Mathf.Min((int)(vv * (res - 1)), res - 2), ix2 = Mathf.Min((int)(uu * (res - 1)), res - 2);
+                if (slopeMap[iy2, ix2] > 0.3f) continue;
+                if (nearBasin(uu * worldSize - ox, vv * worldSize - oz) > 0.02f) continue;
+                var cc = sp[yy * sw + xx];
+                mr += cc.r; mg += cc.g; mb += cc.b; mc++;
+            }
+        if (mc == 0) mc = 1;
+        const float flatDarken = 0.82f;
+        var flatMean = new Color((float)(mr / mc / 255.0) * flatDarken, (float)(mg / mc / 255.0) * flatDarken, (float)(mb / mc / 255.0) * flatDarken, 1f);
+
         var outp = new Color32[N * N];
         double rSum = 0, gSum = 0, bSum = 0; long cnt = 0;
         var lockObj = new object();
@@ -265,6 +281,12 @@ public static class TerrainDetail
                 r = r * mod + dust * 0.9f * 0.25f; g = g * mod + dust * 0.6f * 0.25f; b = b * mod + dust * 0.45f * 0.25f;
 
                 // lav golune yakin duvarlar isiktan kararmis
+                // duz zeminde yakin plan detay dokulariyla karisacagi icin renk degisimini one cek (karisimdan sonra ayni gorunsun)
+                float boost = 1f + 0.5f * flat;
+                r = flatMean.r + (r - flatMean.r) * boost;
+                g = flatMean.g + (g - flatMean.g) * boost;
+                b = flatMean.b + (b - flatMean.b) * boost;
+
                 float near = nearBasin(wx, wz);
                 float scorch = 1f - 0.38f * S(0.04f, 0.45f, near);
                 r *= scorch; g *= scorch; b *= scorch;
@@ -289,28 +311,79 @@ public static class TerrainDetail
             ti.textureCompression = TextureImporterCompression.Compressed;
             ti.SaveAndReimport();
         }
-        return new Color((float)(rSum / cnt / 255.0), (float)(gSum / cnt / 255.0), (float)(bSum / cnt / 255.0), 1f);
+        return flatMean;
     }
 
-    // Yakin plan icin kul/toprak detay dokusu: ortalama rengi ana dokuyla ayni, bu yuzden uzaktan fark edilmez
-    public static void GenerateAsh(string colorPath, string normalPath, Color mean)
+    // Yakin plan icin dogal zemin dokusu: toprak zemin + rastgele serpilmis, duzensiz kenarli, golgeli cakil/tasler.
+    // coarse=false: ince cakil, coarse=true: iri tas parcalari. Ortalama parlaklik tam 1'e normalize edilir
+    // (renk = ana dokunun duz zemin ortalamasi), bu yuzden uzaktan fark edilmez, yakindan zengin gorunur.
+    public static void GenerateAsh(string colorPath, string normalPath, Color mean, bool coarse)
     {
         const int N = 512;
-        var col = new Color[N * N]; var hgt = new float[N * N];
+        var lum = new float[N * N]; var hgt = new float[N * N]; var tint = new Vector3[N * N];
+        int seed = coarse ? 301 : 101;
+        // toprak zemin: dusuk + yuksek frekansli tane
         for (int y = 0; y < N; y++)
             for (int x = 0; x < N; x++)
             {
                 float u = x / (float)N, v = y / (float)N;
-                Voronoi(u, v, 36, 21, out float f1, out float f2, out int cx, out int cy);
-                float pebble = Mathf.Clamp01(1f - f1 * 1.25f);
-                float tone = Rnd(cx, cy, 77);
-                float broad = TFbm(u, v, 8, 4, 31);
-                float fine = TFbm(u, v, 64, 3, 41);
-                float lum = 1f + (tone - 0.5f) * 0.22f + (broad - 0.5f) * 0.30f + (fine - 0.5f) * 0.18f - (1f - S(0f, 0.2f, f2 - f1)) * 0.10f;
-                col[y * N + x] = new Color(mean.r * lum, mean.g * lum, mean.b * lum, 1f);
-                hgt[y * N + x] = pebble * 0.55f + broad * 0.30f + fine * 0.15f;
+                float broad = TFbm(u, v, 6, 4, seed);
+                float grain = TFbm(u, v, 128, 3, seed + 5);
+                lum[y * N + x] = (0.78f + 0.4f * broad) * (0.86f + 0.28f * grain);
+                hgt[y * N + x] = broad * 0.22f + grain * 0.16f;
+                tint[y * N + x] = Vector3.one;
             }
-        WriteTexture(colorPath, normalPath, col, hgt, N, 9f);
+        var rnd = new System.Random(seed);
+        int count = coarse ? 190 : 1700;
+        float rMin = coarse ? 7f : 3f, rMax = coarse ? 25f : 10f;
+        for (int k = 0; k < count; k++)
+        {
+            float cx = (float)rnd.NextDouble() * N, cy = (float)rnd.NextDouble() * N;
+            float r = rMin + Mathf.Pow((float)rnd.NextDouble(), 2.4f) * (rMax - rMin);
+            float asp = 0.72f + (float)rnd.NextDouble() * 0.5f;
+            float a = r * asp, b = r / asp;
+            float th = (float)rnd.NextDouble() * Mathf.PI;
+            float cs = Mathf.Cos(th), sn = Mathf.Sin(th);
+            float toneP = 0.5f + (float)rnd.NextDouble() * 1.05f;
+            Vector3 tn = new Vector3(1f + ((float)rnd.NextDouble() - 0.5f) * 0.22f, 1f, 1f - ((float)rnd.NextDouble() - 0.5f) * 0.26f);
+            float peak = 0.45f + (float)rnd.NextDouble() * 0.55f;
+            int ext = Mathf.CeilToInt(Mathf.Max(a, b) * 1.5f) + 2;
+            for (int dy = -ext; dy <= ext; dy++)
+                for (int dx = -ext; dx <= ext; dx++)
+                {
+                    float lx = dx * cs + dy * sn, ly = -dx * sn + dy * cs;
+                    float d = Mathf.Sqrt((lx / a) * (lx / a) + (ly / b) * (ly / b));
+                    // duzensiz kenar
+                    int px = ((Mathf.RoundToInt(cx) + dx) % N + N) % N, py = ((Mathf.RoundToInt(cy) + dy) % N + N) % N;
+                    d += (WN(px * 0.35f, py * 0.35f, seed + 9) - 0.5f) * 0.38f;
+                    int idx = py * N + px;
+                    if (d < 1f)
+                    {
+                        float edge = 1f - S(0.78f, 1f, d);
+                        float dome = Mathf.Sqrt(Mathf.Max(0f, 1f - d * d));
+                        float lit = 0.8f + 0.35f * dome - 0.20f * Mathf.Clamp01((lx + ly) / (a + b));   // tepe aydinlik, kenar koyu
+                        float surf = (0.9f + 0.2f * WN(px * 0.9f, py * 0.9f, seed + 3)) * toneP * lit;
+                        lum[idx] = Mathf.Lerp(lum[idx], surf * 1.15f, edge);
+                        tint[idx] = Vector3.Lerp(tint[idx], tn, edge);
+                        hgt[idx] = Mathf.Max(hgt[idx], peak * dome * edge + 0.2f * edge);
+                    }
+                    else if (d < 1.45f)
+                    {
+                        // zeminde dibinde yumusak golge
+                        float sh = 1f - S(1f, 1.45f, d);
+                        lum[idx] *= 1f - 0.45f * sh;
+                    }
+                }
+        }
+        double sum = 0; for (int i = 0; i < lum.Length; i++) sum += lum[i];
+        float norm = (float)(lum.Length / sum);
+        var col = new Color[N * N];
+        for (int i = 0; i < col.Length; i++)
+        {
+            float l = lum[i] * norm;
+            col[i] = new Color(Mathf.Clamp01(mean.r * l * tint[i].x), Mathf.Clamp01(mean.g * l * tint[i].y), Mathf.Clamp01(mean.b * l * tint[i].z), 1f);
+        }
+        WriteTexture(colorPath, normalPath, col, hgt, N, coarse ? 12f : 15f);
     }
 
     // ---------- Dusuk poligonlu modeller ----------

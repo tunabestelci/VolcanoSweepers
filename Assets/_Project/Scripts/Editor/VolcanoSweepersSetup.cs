@@ -832,7 +832,8 @@ public static class VolcanoSweepersSetup
         string tex = Art + "/Textures/";
         Color meanCol = TerrainDetail.BakeAlbedo(TerrainDir + "/Volcano_Albedo.png", TerrainDir + "/Volcano_Baked.jpg", 4096, data, slopeMap, concMap,
             res, worldSize, R2, cxPx * mPerPx, cyT * mPerPx, (wx, wz) => NearBasin(wx, wz));
-        TerrainDetail.GenerateAsh(TerrainDir + "/Ash_Color.png", TerrainDir + "/Ash_Normal.png", meanCol);
+        TerrainDetail.GenerateAsh(TerrainDir + "/Ash_Color.png", TerrainDir + "/Ash_Normal.png", meanCol, false);
+        TerrainDetail.GenerateAsh(TerrainDir + "/Plates_Color.png", TerrainDir + "/Plates_Normal.png", meanCol, true);
 
         TerrainLayer MakeLayer(string file, Texture2D d, Texture2D n, float tile, float smooth, float nScale)
         {
@@ -844,13 +845,15 @@ public static class VolcanoSweepersSetup
         }
         var layer = MakeLayer("VolcanoLayer", Tex(TerrainDir + "/Volcano_Baked.jpg"), Tex(TerrainDir + "/Volcano_Normal.png"), worldSize, 0.1f, 1f);
         var rockLayer = MakeLayer("RockLayer", Tex(tex + "Rock/RockWall_Color.png"), Tex(tex + "Rock/RockWall_Normal.png"), 3.2f, 0.3f, 1.1f);
-        var ashLayer = MakeLayer("AshLayer", Tex(TerrainDir + "/Ash_Color.png"), Tex(TerrainDir + "/Ash_Normal.png"), 2.6f, 0.1f, 1.0f);
-        td.terrainLayers = new[] { layer, rockLayer, ashLayer };
+        var ashLayer = MakeLayer("AshLayer", Tex(TerrainDir + "/Ash_Color.png"), Tex(TerrainDir + "/Ash_Normal.png"), 1.6f, 0.1f, 1.6f);
+        var platesLayer = MakeLayer("PlatesLayer", Tex(TerrainDir + "/Plates_Color.png"), Tex(TerrainDir + "/Plates_Normal.png"), 4.5f, 0.1f, 1.5f);
+        td.terrainLayers = new[] { layer, rockLayer, ashLayer, platesLayer };
+        float[,,] splat = null;
         {
             td.alphamapResolution = 2048;
             int ar = td.alphamapResolution;
             Vector3 aorg = new Vector3(-cxPx * mPerPx, 0f, -cyT * mPerPx);
-            var maps = new float[ar, ar, 3];
+            var maps = new float[ar, ar, 4];
             for (int ay = 0; ay < ar; ay++)
                 for (int ax = 0; ax < ar; ax++)
                 {
@@ -864,15 +867,19 @@ public static class VolcanoSweepersSetup
                     float slope = slopeMap[hy, hx];
                     float steep = TerrainDetail.S(0.45f, 1.0f, slope);
                     // ana (pisirilmis) doku baskin; kaya yalniz dik yuzeylerde ince bir katman, kul yakin plan detayi duzlerde
-                    float wR = steep * 0.5f;
-                    float wA = (1f - steep) * 0.38f * TerrainDetail.S(0.3f, 0.5f, TerrainDetail.Fbm(wx * 0.05f + 3f, wz * 0.05f, 2) + 0.15f);
-                    float w0 = Mathf.Max(0f, 1f - wR - wA);
+                    float flatW = 1f - steep;
+                    float wR = steep * 0.55f;
+                    float plateN = TerrainDetail.S(0.42f, 0.58f, TerrainDetail.Fbm(wx * 0.06f + 3f, wz * 0.06f, 3));
+                    float wP = flatW * 0.34f * plateN;
+                    float wA = flatW * (0.52f - 0.14f * plateN);
+                    float w0 = Mathf.Max(0f, 1f - wR - wA - wP);
                     // platform: duz kaya doseme
-                    w0 *= 1f - rw; wA *= 1f - rw; wR = wR * (1f - rw) + rw;
-                    float sum = w0 + wR + wA;
-                    maps[ay, ax, 0] = w0 / sum; maps[ay, ax, 1] = wR / sum; maps[ay, ax, 2] = wA / sum;
+                    w0 *= 1f - rw; wA *= 1f - rw; wP *= 1f - rw; wR = wR * (1f - rw) + rw;
+                    float sum = w0 + wR + wA + wP;
+                    maps[ay, ax, 0] = w0 / sum; maps[ay, ax, 1] = wR / sum; maps[ay, ax, 2] = wA / sum; maps[ay, ax, 3] = wP / sum;
                 }
             td.SetAlphamaps(0, 0, maps);
+            splat = maps;
         }
 
         // ---- Kaya parcalari: kucuk, sik, yumusak; ana yuzeyin renginde (arazi agaci, GPU instancing) ----
@@ -948,6 +955,14 @@ public static class VolcanoSweepersSetup
 
         AssetDatabase.DeleteAsset(TerrainDir + "/VolcanoTerrain.asset");
         AssetDatabase.CreateAsset(td, TerrainDir + "/VolcanoTerrain.asset");
+        // Varlik olusturulurken kati/sifirlanan splat dokulari: haritalari kaydedilmis varliga yeniden yaz ve diske sabitle
+        td.SetAlphamaps(0, 0, splat);
+        EditorUtility.SetDirty(td);
+        AssetDatabase.SaveAssets();
+        {
+            var chk = td.GetAlphamaps(Mathf.RoundToInt((padX + cxPx * mPerPx) / worldSize * td.alphamapWidth), Mathf.RoundToInt((padZ + cyT * mPerPx) / worldSize * td.alphamapHeight), 1, 1);
+            Debug.Log($"[Terrain] splat kontrol (platform): {chk[0, 0, 0]:F2},{chk[0, 0, 1]:F2},{chk[0, 0, 2]:F2},{chk[0, 0, 3]:F2}");
+        }
 
         var go = Terrain.CreateTerrainGameObject(td);
         go.name = "VolcanoTerrain";
