@@ -31,6 +31,7 @@ public static class VolcanoSweepersSetup
         Directory.CreateDirectory(SceneDir);
 
         var m = BuildMaterials();
+        CelShadingSetup.Apply();
         BuildPrefabs(m);
         BuildScene(m);
         AssetDatabase.SaveAssets();
@@ -395,18 +396,23 @@ public static class VolcanoSweepersSetup
 
         // Atmosfer
         RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
-        RenderSettings.ambientLight = new Color(0.36f, 0.22f, 0.18f);
+        RenderSettings.ambientLight = new Color(0.3f, 0.19f, 0.17f);
         RenderSettings.fog = true;
         RenderSettings.fogMode = FogMode.ExponentialSquared;
-        RenderSettings.fogColor = new Color(0.16f, 0.06f, 0.04f);
-        RenderSettings.fogDensity = 0.0035f;
+        RenderSettings.fogColor = new Color(0.2f, 0.07f, 0.05f);
+        RenderSettings.fogDensity = 0.0028f;
 
+        // Cel-shade icin guclu, yonlu ve sert golgeli ana isik: net isik/golge bantlari verir
         var sunGo = new GameObject("Sun");
         var sun = sunGo.AddComponent<Light>();
         sun.type = LightType.Directional;
-        sun.color = new Color(1f, 0.7f, 0.55f);
-        sun.intensity = 0.7f;
-        sunGo.transform.rotation = Quaternion.Euler(55f, -30f, 0f);
+        sun.color = new Color(1f, 0.78f, 0.62f);
+        sun.intensity = 1.5f;
+        sun.shadows = LightShadows.Hard;
+        sun.shadowStrength = 0.9f;
+        sun.shadowBias = 0.03f;
+        sun.shadowNormalBias = 0.4f;
+        sunGo.transform.rotation = Quaternion.Euler(42f, -35f, 0f);
 
         // Volkan arazisi (kullanicinin yukseklik haritasi) + ekipman istasyonu
         var env = new GameObject("Environment").transform;
@@ -727,8 +733,18 @@ public static class VolcanoSweepersSetup
                     float wz = aorg.z + (ay + 0.5f) / ar * worldSize;
                     float pd2 = Mathf.Sqrt((wx - padX) * (wx - padX) + (wz - padZ) * (wz - padZ));
                     float rw = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(9.4f, 11f, pd2));
-                    maps[ay, ax, 0] = 1f - rw;
-                    maps[ay, ax, 1] = rw;
+
+                    // Egimli yuzeyler (yamaclar) kaya dokusuyla kaplanir: tek devasa doku yerine her yerde net kaya detayi
+                    int hx = Mathf.Clamp(Mathf.RoundToInt((ax + 0.5f) / ar * (res - 1)), 1, res - 2);
+                    int hy = Mathf.Clamp(Mathf.RoundToInt((ay + 0.5f) / ar * (res - 1)), 1, res - 2);
+                    float cell = worldSize / (res - 1f);
+                    float gx = (data[hy, hx + 1] - data[hy, hx - 1]) * heightRange / (2f * cell);
+                    float gz = (data[hy + 1, hx] - data[hy - 1, hx]) * heightRange / (2f * cell);
+                    float slopeDeg = Mathf.Atan(Mathf.Sqrt(gx * gx + gz * gz)) * Mathf.Rad2Deg;
+                    float sr = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(22f, 42f, slopeDeg));
+                    float rockTotal = rw + (1f - rw) * sr;
+                    maps[ay, ax, 0] = 1f - rockTotal;
+                    maps[ay, ax, 1] = rockTotal;
                 }
             td.SetAlphamaps(0, 0, maps);
         }

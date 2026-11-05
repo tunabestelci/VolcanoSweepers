@@ -56,6 +56,7 @@ public class LavaField : MonoBehaviour
             for (int i = 0; i < n; i++) { basin[i] = bytes[i]; if (bytes[i] != 0) basinCount++; }
         }
         pixels = new Color32[res * res];
+        BuildSoftBasin();
         maskTex = new Texture2D(res, res, TextureFormat.RGBA32, false, true)
         {
             wrapMode = TextureWrapMode.Clamp,
@@ -113,10 +114,47 @@ public class LavaField : MonoBehaviour
         if (dirty) Upload();
     }
 
+    byte[] basinSoft;
+
+    // Havuz maskesini bulaniklastirir: lav kiyisi basamak basamak degil, puruzsuz bir egri olur
+    void BuildSoftBasin()
+    {
+        int n = res;
+        var a = new float[n * n];
+        var b = new float[n * n];
+        for (int i = 0; i < a.Length; i++) a[i] = basin[i] != 0 ? 1f : 0f;
+        const int r = 3;
+        for (int pass = 0; pass < 2; pass++)
+        {
+            for (int y = 0; y < n; y++)          // yatay
+            {
+                float sum = 0f;
+                for (int k = -r; k <= r; k++) sum += a[y * n + Mathf.Clamp(k, 0, n - 1)];
+                for (int x = 0; x < n; x++)
+                {
+                    b[y * n + x] = sum / (2 * r + 1);
+                    sum += a[y * n + Mathf.Min(x + r + 1, n - 1)] - a[y * n + Mathf.Max(x - r, 0)];
+                }
+            }
+            for (int x = 0; x < n; x++)          // dikey
+            {
+                float sum = 0f;
+                for (int k = -r; k <= r; k++) sum += b[Mathf.Clamp(k, 0, n - 1) * n + x];
+                for (int y = 0; y < n; y++)
+                {
+                    a[y * n + x] = sum / (2 * r + 1);
+                    sum += b[Mathf.Min(y + r + 1, n - 1) * n + x] - b[Mathf.Max(y - r, 0) * n + x];
+                }
+            }
+        }
+        basinSoft = new byte[n * n];
+        for (int i = 0; i < a.Length; i++) basinSoft[i] = (byte)Mathf.Clamp(Mathf.RoundToInt(a[i] * 255f), 0, 255);
+    }
+
     void Upload()
     {
         for (int i = 0; i < pixels.Length; i++)
-            pixels[i] = new Color32((byte)(crust[i] * 255f), (byte)(dig[i] * 255f), basin[i], 255);
+            pixels[i] = new Color32((byte)(crust[i] * 255f), (byte)(dig[i] * 255f), basinSoft[i], 255);
         maskTex.SetPixels32(pixels);
         maskTex.Apply(false);
         dirty = false;

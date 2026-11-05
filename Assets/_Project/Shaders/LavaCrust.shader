@@ -22,22 +22,7 @@ Shader "VolcanoSweepers/LavaCrust"
     {
         Tags { "RenderType" = "Opaque" "RenderPipeline" = "UniversalPipeline" "Queue" = "Geometry" }
 
-        Pass
-        {
-            Name "ForwardLit"
-            Tags { "LightMode" = "UniversalForward" }
-
-            HLSLPROGRAM
-            #pragma target 3.5
-            #pragma vertex vert
-            #pragma fragment frag
-            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
-            #pragma multi_compile _ _ADDITIONAL_LIGHTS_VERTEX _ADDITIONAL_LIGHTS
-            #pragma multi_compile _ _CLUSTER_LIGHT_LOOP
-            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
-            #pragma multi_compile_fragment _ _SHADOWS_SOFT _SHADOWS_SOFT_LOW _SHADOWS_SOFT_MEDIUM _SHADOWS_SOFT_HIGH
-            #pragma multi_compile_fog
-
+        HLSLINCLUDE
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
 
@@ -76,6 +61,17 @@ Shader "VolcanoSweepers/LavaCrust"
 
             float CrustShape(float c) { return smoothstep(0.3, 0.6, c); }
 
+            float3 LavaRamp(float t)
+            {
+                float fw = max(fwidth(t), 0.012);
+                float3 c = float3(0.42, 0.04, 0.02);
+                c = lerp(c, float3(0.85, 0.2, 0.04), smoothstep(0.22 - fw, 0.22 + fw, t));
+                c = lerp(c, float3(1.0, 0.45, 0.07), smoothstep(0.42 - fw, 0.42 + fw, t));
+                c = lerp(c, float3(1.0, 0.72, 0.16), smoothstep(0.62 - fw, 0.62 + fw, t));
+                c = lerp(c, float3(1.0, 0.93, 0.5), smoothstep(0.84 - fw, 0.84 + fw, t));
+                return c;
+            }
+
             float HeightAtUV(float2 uv)
             {
                 float4 m = SAMPLE_TEXTURE2D_LOD(_Mask, sampler_Mask, uv, 0);
@@ -101,6 +97,24 @@ Shader "VolcanoSweepers/LavaCrust"
                 OUT.fogFactor = ComputeFogFactor(OUT.positionCS.z);
                 return OUT;
             }
+
+        ENDHLSL
+
+        Pass
+        {
+            Name "ForwardLit"
+            Tags { "LightMode" = "UniversalForward" }
+
+            HLSLPROGRAM
+            #pragma target 3.5
+            #pragma vertex vert
+            #pragma fragment frag
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS_VERTEX _ADDITIONAL_LIGHTS
+            #pragma multi_compile _ _CLUSTER_LIGHT_LOOP
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT _SHADOWS_SOFT_LOW _SHADOWS_SOFT_MEDIUM _SHADOWS_SOFT_HIGH
+            #pragma multi_compile_fog
 
             half4 frag(Varyings IN) : SV_Target
             {
@@ -131,6 +145,8 @@ Shader "VolcanoSweepers/LavaCrust"
                 // Genis olcekli parlaklik degisimi: tekrar eden izgara gorunmesin
                 float big = SAMPLE_TEXTURE2D(_LavaMap, sampler_LavaMap, meters * 0.011 + float2(t * 0.15, t * 0.1)).r;
                 lava = saturate(lava * lava * 1.4 * (0.75 + 0.55 * big));
+                // Cel-shade: lav parlakligi birkac net renk bandina (koyu kirmizi -> turuncu -> sari) ayrilir
+                lava = LavaRamp(saturate((dot(lava, float3(0.3, 0.59, 0.11)) - 0.32) * 2.3));
 
                 // Kabuk: gurultuyle duzensiz kenar
                 float noise = SAMPLE_TEXTURE2D(_LavaMap, sampler_LavaMap, meters / 1.7).r;
@@ -153,12 +169,17 @@ Shader "VolcanoSweepers/LavaCrust"
 
                 float pulse = 0.85 + 0.2 * sin(_Time.y * 1.7 + noise * 6.0);
                 float edge = smoothstep(0.0, 0.3, c) * (1.0 - smoothstep(0.55, 0.95, c));
-                float3 emission = lava * _EmissionStrength * pulse * (1.0 - c);
+                float3 emission = lava * _EmissionStrength * 0.8 * pulse * (1.0 - c);
                 emission += float3(1.0, 0.35, 0.05) * edge * 0.9 * (1.0 - c * 0.3);
 
                 // Ana kaya (dibe ulasildi)
                 albedo = lerp(_Bedrock.rgb, albedo, lavaAmt);
                 emission *= lavaAmt;
+
+                // Kiyi: lavin kayayla bulustugu yerde koyu murekkep seridi (cel-shade cizgisi)
+                float shore = 1.0 - smoothstep(0.5, 0.68, m.b);
+                albedo = lerp(albedo, float3(0.03, 0.014, 0.01), shore);
+                emission *= 1.0 - shore;
                 smooth = lerp(0.12, smooth, lavaAmt);
                 metallic *= lavaAmt;
 
@@ -186,6 +207,53 @@ Shader "VolcanoSweepers/LavaCrust"
                 col.rgb = MixFog(col.rgb, inputData.fogCoord);
                 col.a = 1;
                 return col;
+            }
+            ENDHLSL
+        }
+
+        Pass
+        {
+            Name "DepthOnly"
+            Tags { "LightMode" = "DepthOnly" }
+            ZWrite On
+            ColorMask R
+
+            HLSLPROGRAM
+            #pragma target 3.5
+            #pragma vertex vert
+            #pragma fragment fragDepth
+
+            half fragDepth(Varyings IN) : SV_Target
+            {
+                clip(SAMPLE_TEXTURE2D(_Mask, sampler_Mask, IN.uv).b - 0.5);
+                return 0;
+            }
+            ENDHLSL
+        }
+
+        Pass
+        {
+            Name "DepthNormals"
+            Tags { "LightMode" = "DepthNormals" }
+            ZWrite On
+
+            HLSLPROGRAM
+            #pragma target 3.5
+            #pragma vertex vert
+            #pragma fragment fragDN
+            #pragma multi_compile_fragment _ _GBUFFER_NORMALS_OCT
+
+            half4 fragDN(Varyings IN) : SV_Target
+            {
+                clip(SAMPLE_TEXTURE2D(_Mask, sampler_Mask, IN.uv).b - 0.5);
+                float3 n = float3(0, 1, 0);
+            #if defined(_GBUFFER_NORMALS_OCT)
+                float2 oct = PackNormalOctQuadEncode(n);
+                float2 r = saturate(oct * 0.5 + 0.5);
+                return half4(PackFloat2To888(r), 0.0);
+            #else
+                return half4(n, 0.0);
+            #endif
             }
             ENDHLSL
         }
