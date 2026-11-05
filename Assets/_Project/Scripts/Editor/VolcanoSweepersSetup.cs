@@ -396,7 +396,7 @@ public static class VolcanoSweepersSetup
 
         // Atmosfer
         RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
-        RenderSettings.ambientLight = new Color(0.27f, 0.17f, 0.22f);
+        RenderSettings.ambientLight = new Color(0.36f, 0.23f, 0.27f);
         RenderSettings.fog = true;
         RenderSettings.fogMode = FogMode.ExponentialSquared;
         RenderSettings.fogColor = new Color(0.30f, 0.10f, 0.07f);
@@ -421,7 +421,7 @@ public static class VolcanoSweepersSetup
         sun.color = new Color(1f, 0.78f, 0.62f);
         sun.intensity = 0.95f;
         sun.shadows = LightShadows.Hard;
-        sun.shadowStrength = 0.9f;
+        sun.shadowStrength = 0.78f;
         sun.shadowBias = 0.03f;
         sun.shadowNormalBias = 0.4f;
         sunGo.transform.rotation = Quaternion.Euler(42f, -35f, 0f);

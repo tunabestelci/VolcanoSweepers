@@ -66,7 +66,7 @@ Shader "VolcanoSweepers/CelPost"
                 float3 col = c * clamp((Lq + 0.01) / (L + 0.01), 0.0, 3.0);
                 // Ince doku detayi bantlarin icinde kalsin (yuksek frekansli parlaklik farki geri eklenir)
                 float Lraw = dot(Src(uv), float3(0.299, 0.587, 0.114));
-                col *= 1.0 + clamp((Lraw - L) / (L + 0.12), -0.5, 0.5) * _Detail;
+                col *= 1.0 + clamp((Lraw - L) / (L + 0.04), -0.6, 0.6) * _Detail;
                 float gray = dot(col, float3(0.299, 0.587, 0.114));
                 col = max(0.0, lerp(gray.xxx, col, _Saturation));
 
