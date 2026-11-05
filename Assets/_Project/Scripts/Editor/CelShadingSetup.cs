@@ -26,11 +26,11 @@ public static class CelShadingSetup
         mat.SetFloat("_Bands", 4f);
         mat.SetFloat("_Shadow", 0.07f);
         mat.SetFloat("_Saturation", 1.3f);
-        mat.SetFloat("_Soften", 2.2f);
+        mat.SetFloat("_Soften", 1.5f);
         mat.SetFloat("_OutlineWidth", 1.6f);
         mat.SetFloat("_OutlineThreshold", 0.05f);
-        mat.SetFloat("_Detail", 0.5f);
-        mat.SetFloat("_NormalEdge", 0.3f);
+        mat.SetFloat("_Detail", 0.9f);
+        mat.SetFloat("_NormalEdge", 0.42f);
         mat.SetFloat("_NormalEdgeStrength", 0.9f);
         mat.SetColor("_OutlineColor", new Color(0.035f, 0.015f, 0.012f, 1f));
         EditorUtility.SetDirty(mat);

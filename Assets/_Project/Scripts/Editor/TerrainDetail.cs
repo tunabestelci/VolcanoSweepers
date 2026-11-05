@@ -282,7 +282,7 @@ public static class TerrainDetail
 
                 // lav golune yakin duvarlar isiktan kararmis
                 // duz zeminde yakin plan detay dokulariyla karisacagi icin renk degisimini one cek (karisimdan sonra ayni gorunsun)
-                float boost = 1f + 0.5f * flat;
+                float boost = 1f + 0.9f * flat;
                 r = flatMean.r + (r - flatMean.r) * boost;
                 g = flatMean.g + (g - flatMean.g) * boost;
                 b = flatMean.b + (b - flatMean.b) * boost;
@@ -384,6 +384,91 @@ public static class TerrainDetail
             col[i] = new Color(Mathf.Clamp01(mean.r * l * tint[i].x), Mathf.Clamp01(mean.g * l * tint[i].y), Mathf.Clamp01(mean.b * l * tint[i].z), 1f);
         }
         WriteTexture(colorPath, normalPath, col, hgt, N, coarse ? 12f : 15f);
+    }
+
+    // ---------- Poly Haven kaya varliklari (dark_rock / tiger_rock / lichen_rock) ----------
+
+    public static void EnsureNormalMap(string path)
+    {
+        AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+        var ti = AssetImporter.GetAtPath(path) as TextureImporter;
+        if (ti != null && ti.textureType != TextureImporterType.NormalMap)
+        {
+            ti.textureType = TextureImporterType.NormalMap;
+            ti.maxTextureSize = 2048;
+            ti.anisoLevel = 8;
+            ti.SaveAndReimport();
+        }
+    }
+
+    public static void EnsureColorTexture(string path)
+    {
+        AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+        var ti = AssetImporter.GetAtPath(path) as TextureImporter;
+        if (ti != null && (ti.anisoLevel < 8 || ti.maxTextureSize < 2048))
+        {
+            ti.maxTextureSize = 2048;
+            ti.anisoLevel = 8;
+            ti.SaveAndReimport();
+        }
+    }
+
+    public static Material RockMaterial(string matPath, string diffPath, string normalPath, float smoothness)
+    {
+        var mat = AssetDatabase.LoadAssetAtPath<Material>(matPath);
+        if (mat == null) { mat = new Material(Shader.Find("Universal Render Pipeline/Lit")); AssetDatabase.CreateAsset(mat, matPath); }
+        mat.shader = Shader.Find("Universal Render Pipeline/Lit");
+        mat.SetTexture("_BaseMap", AssetDatabase.LoadAssetAtPath<Texture2D>(diffPath));
+        mat.SetColor("_BaseColor", Color.white);
+        mat.SetTexture("_BumpMap", AssetDatabase.LoadAssetAtPath<Texture2D>(normalPath));
+        mat.SetFloat("_BumpScale", 1.2f);
+        mat.EnableKeyword("_NORMALMAP");
+        mat.SetFloat("_Smoothness", smoothness);
+        mat.SetFloat("_Metallic", 0f);
+        mat.enableInstancing = true;
+        EditorUtility.SetDirty(mat);
+        return mat;
+    }
+
+    static Mesh LoadObjMesh(string objPath)
+    {
+        var mi = AssetImporter.GetAtPath(objPath) as ModelImporter;
+        if (mi != null && (mi.materialImportMode != ModelImporterMaterialImportMode.None || mi.importTangents != ModelImporterTangents.CalculateMikk))
+        {
+            mi.materialImportMode = ModelImporterMaterialImportMode.None;
+            mi.importNormals = ModelImporterNormals.Import;
+            mi.importTangents = ModelImporterTangents.CalculateMikk;
+            mi.meshCompression = ModelImporterMeshCompression.Off;
+            mi.SaveAndReimport();
+        }
+        foreach (var o in AssetDatabase.LoadAllAssetsAtPath(objPath))
+            if (o is Mesh m) return m;
+        Debug.LogError("[Rocks] mesh bulunamadi: " + objPath);
+        return null;
+    }
+
+    // Iki detay seviyeli (LOD) kaya prefab'i: arazi agaci olarak GPU instancing ile cizilir
+    public static GameObject MakeLodPrefab(string objL0, string objL1, string prefabPath, Material mat)
+    {
+        var m0 = LoadObjMesh(objL0); var m1 = LoadObjMesh(objL1);
+        var root = new GameObject(Path.GetFileNameWithoutExtension(prefabPath));
+        var lodObjs = new Renderer[2];
+        for (int i = 0; i < 2; i++)
+        {
+            var c = new GameObject(i == 0 ? "LOD0" : "LOD1");
+            c.transform.SetParent(root.transform, false);
+            c.AddComponent<MeshFilter>().sharedMesh = i == 0 ? m0 : m1;
+            var mr = c.AddComponent<MeshRenderer>();
+            mr.sharedMaterial = mat;
+            mr.shadowCastingMode = i == 0 ? UnityEngine.Rendering.ShadowCastingMode.On : UnityEngine.Rendering.ShadowCastingMode.Off;
+            lodObjs[i] = mr;
+        }
+        var lg = root.AddComponent<LODGroup>();
+        lg.SetLODs(new[] { new LOD(0.06f, new[] { lodObjs[0] }), new LOD(0.008f, new[] { lodObjs[1] }) });
+        lg.RecalculateBounds();
+        var prefab = PrefabUtility.SaveAsPrefabAsset(root, prefabPath);
+        Object.DestroyImmediate(root);
+        return prefab;
     }
 
     // ---------- Dusuk poligonlu modeller ----------
