@@ -23,7 +23,7 @@ public class SfxPlayer : MonoBehaviour
         var src = gameObject.AddComponent<AudioSource>();
         src.clip = lavaAmbient;
         src.loop = true;
-        src.volume = 0.35f;
+        src.volume = 0.55f;
         src.spatialBlend = 0f;
         src.Play();
     }

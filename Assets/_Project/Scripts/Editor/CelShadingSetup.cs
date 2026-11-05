@@ -25,7 +25,7 @@ public static class CelShadingSetup
         mat.shader = shader;
         mat.SetFloat("_Bands", 4f);
         mat.SetFloat("_Shadow", 0.07f);
-        mat.SetFloat("_Saturation", 1.3f);
+        mat.SetFloat("_Saturation", 1.15f);
         mat.SetFloat("_Soften", 1.5f);
         mat.SetFloat("_OutlineWidth", 1.6f);
         mat.SetFloat("_OutlineThreshold", 0.05f);

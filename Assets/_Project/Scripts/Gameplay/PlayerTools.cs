@@ -512,6 +512,38 @@ public class PlayerTools : MonoBehaviour
         }
     }
 
+    bool depositing;
+
+    // Cevherleri kovalardan tek tek al, hazneye at (sirayla: sol kova, sag kova)
+    IEnumerator DepositRoutine()
+    {
+        depositing = true;
+        var bin = OreBin.I;
+        if (bin.orePrefab == null) bin.orePrefab = coreVisualPrefab;
+        int moved = 0;
+        foreach (var h in new[] { left, right })
+        {
+            while (h.ores > 0 && !bin.Full)
+            {
+                Vector3 side = cam.transform.right * (h == left ? -0.28f : 0.28f);
+                Vector3 from = cam.transform.position + cam.transform.forward * 0.55f + side + Vector3.down * 0.3f;
+                h.ores--; moved++;
+                bin.Toss(from);
+                if (h.item != null)
+                {
+                    var old = h.item.transform.Find("Ores");
+                    if (old != null) Destroy(old.gameObject);
+                    BuildOreViews(h);
+                }
+                SetHint($"Depoya atiliyor... ({bin.Count}/{bin.capacity})");
+                yield return new WaitForSeconds(0.14f);
+            }
+        }
+        yield return new WaitForSeconds(0.5f);
+        SetHint($"{moved} cevher depoya dizildi ({bin.Count}/{bin.capacity})");
+        depositing = false;
+    }
+
     // ---------- Litik cekirdek toplama ----------
 
     void TryPickup()
@@ -528,22 +560,10 @@ public class PlayerTools : MonoBehaviour
             if (OreBin.I != null && OreBin.I.LooksAt(eRay, reach + 1f))
             {
                 int have = CoreCount;
+                if (depositing) return;
                 if (have == 0) { SetHint($"Depo: {OreBin.I.Count}/{OreBin.I.capacity} (kovalarda cevher yok)"); return; }
-                if (OreBin.I.Count >= OreBin.I.capacity) { SetHint("Depo dolu (500/500)"); return; }
-                int moved = 0;
-                foreach (var h in new[] { left, right })
-                {
-                    if (h.ores <= 0) continue;
-                    int took = OreBin.I.Deposit(h.ores);
-                    h.ores -= took; moved += took;
-                    if (h.item != null)
-                    {
-                        var old = h.item.transform.Find("Ores");
-                        if (old != null) Destroy(old.gameObject);
-                        BuildOreViews(h);
-                    }
-                }
-                SetHint($"{moved} cevher depoya bosaltildi ({OreBin.I.Count}/{OreBin.I.capacity})");
+                if (OreBin.I.Full) { SetHint("Depo dolu (500/500)"); return; }
+                StartCoroutine(DepositRoutine());
                 return;
             }
             if (lookWell) return;      // kuyu E tusunu kendi yonetir (basili tut: indir, doluyken bas: cek)

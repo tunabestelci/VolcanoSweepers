@@ -418,7 +418,7 @@ public static class VolcanoSweepersSetup
         var sunGo = new GameObject("Sun");
         var sun = sunGo.AddComponent<Light>();
         sun.type = LightType.Directional;
-        sun.color = new Color(1f, 0.78f, 0.62f);
+        sun.color = new Color(1f, 0.87f, 0.76f);
         sun.intensity = 0.95f;
         sun.shadows = LightShadows.Hard;
         sun.shadowStrength = 0.78f;
@@ -474,6 +474,7 @@ public static class VolcanoSweepersSetup
         sfx.waterPour = AssetDatabase.LoadAssetAtPath<AudioClip>(Sfx + "water_splash.mp3");       // su dokme: water splash
         sfx.wellPump = AssetDatabase.LoadAssetAtPath<AudioClip>(Sfx + "well_crank.mp3");         // kuyu cikrigi: roulette wheel
         sfx.bucketPour = AssetDatabase.LoadAssetAtPath<AudioClip>(Sfx + "bucket_pour.mp3");      // cekilen suyu kovaya alma: water pouring
+        sfx.lavaAmbient = AssetDatabase.LoadAssetAtPath<AudioClip>(Sfx + "lava_ambient.mp3");    // lav arka plan sesi: heavy bubbles (surekli dongu)
         sfx.pickaxeHit = Clip("pickaxe_hit");
         sfx.obsidianBreak = Clip("obsidian_break");
         sfx.lavaSizzle = AssetDatabase.LoadAssetAtPath<AudioClip>(Sfx + "water_sizzling_hot_iron.mp3");   // lav obsidyene donusurken buharlasma
@@ -870,7 +871,7 @@ public static class VolcanoSweepersSetup
                     int hy = Mathf.Clamp(Mathf.RoundToInt((ay + 0.5f) / ar * (res - 1)), 1, res - 2);
                     float steep = TerrainDetail.S(0.45f, 1.0f, slopeMap[hy, hx]);
                     // makro renk (pisirilmis eski doku) dusuk pay; dag kayasi ince taneli, uc olcekte karisarak tekrar hissini yok eder
-                    float wBaked = Mathf.Lerp(0.20f, 0.08f, steep);
+                    float wBaked = Mathf.Lerp(0.05f, 0.02f, steep);      // yalniz cok hafif makro ton: zemin gercekte dark_rock dokusu
                     float wDark = 1f - wBaked;
                     float patch = TerrainDetail.S(0.35f, 0.65f, TerrainDetail.Fbm(wx * 0.045f + 3f, wz * 0.045f, 3));
                     float wF = wDark * 0.52f, wM = wDark * 0.48f * patch, wC = wDark * 0.48f * (1f - patch);
