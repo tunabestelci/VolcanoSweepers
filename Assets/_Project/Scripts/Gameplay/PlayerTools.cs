@@ -21,7 +21,10 @@ public class PlayerTools : MonoBehaviour
         public bool busy;
         public float bobPhase;
         public int ores;            // kovadaki cevher sayisi (en fazla OresPerBucket)
+        public bool has = true;     // bu elin kovasi envanterde mi (yere birakilabilir)
     }
+
+    bool hasPickaxe = true;
 
     public const int OresPerBucket = 5;
 
@@ -79,7 +82,7 @@ public class PlayerTools : MonoBehaviour
     public void DoSwing() { if (!right.busy) StartCoroutine(SwingPickaxe()); }
     public bool BotPourBusy => left.busy || right.busy;
     public void DoPickup() { TryPickup(); }
-    public void DoPull() { TryPickup(); }
+    public void DoPull() { foreach (var w in WaterWell.All) if (w != null && !w.Busy) w.auto = true; }
     public void DoEquip(Tool t) { Equip(t); }
 
     // ---------- Alet degistirme ----------
@@ -87,6 +90,7 @@ public class PlayerTools : MonoBehaviour
     void Equip(Tool tool)
     {
         if (left.busy || right.busy) return;
+        if (tool == Tool.Pickaxe && !hasPickaxe) { SetHint("Kazma yerde - E ile al"); return; }
         CurrentTool = tool;
         ClearItem(left);
         ClearItem(right);
@@ -94,8 +98,8 @@ public class PlayerTools : MonoBehaviour
 
         if (tool == Tool.Buckets)
         {
-            SpawnBucket(left);
-            SpawnBucket(right);
+            if (left.has) SpawnBucket(left);
+            if (right.has) SpawnBucket(right);
             SetDefaultPoses(left, -1f);
             SetDefaultPoses(right, 1f);
         }
@@ -184,14 +188,36 @@ public class PlayerTools : MonoBehaviour
         var mouse = Mouse.current;
         if (kb == null || mouse == null || Cursor.lockState != CursorLockMode.Locked) { Apply(left); Apply(right); return; }
 
-        if (kb.digit1Key.wasPressedThisFrame) Equip(Tool.Buckets);
-        if (kb.digit2Key.wasPressedThisFrame) Equip(Tool.Pickaxe);
+        // Tus atamasi: 1 = kovalar (kovalar elindeyken 1: sol kovayi birak, 2: sag kovayi birak), 3 = kazma, Q = kazmayi birak
+        if (kb.digit1Key.wasPressedThisFrame)
+        {
+            if (CurrentTool == Tool.Buckets) DropBucket(left); else Equip(Tool.Buckets);
+        }
+        if (kb.digit2Key.wasPressedThisFrame)
+        {
+            if (CurrentTool == Tool.Buckets) DropBucket(right); else Equip(Tool.Buckets);
+        }
+        if (kb.digit3Key.wasPressedThisFrame) Equip(Tool.Pickaxe);
+        if (kb.qKey.wasPressedThisFrame && CurrentTool == Tool.Pickaxe) DropPickaxe();
         if (kb.eKey.wasPressedThisFrame) TryPickup();
+
+        // Kuyu: E basili tutarak kova indirilir, doluyken E ile cekilir
+        {
+            var ray = new Ray(cam.transform.position, cam.transform.forward);
+            foreach (var well in WaterWell.All)
+            {
+                if (well == null) continue;
+                bool looking = well.LooksAt(ray.origin, ray.direction, reach + 1f);
+                well.SetInput(kb.eKey.wasPressedThisFrame, kb.eKey.isPressed, looking);
+                if (looking && !string.IsNullOrEmpty(well.Hint) && !(OreBin.I != null && OreBin.I.LooksAt(ray, reach + 1f)))
+                    SetHint(well.Hint, 0.3f);
+            }
+        }
 
         if (CurrentTool == Tool.Buckets)
         {
-            if (mouse.leftButton.wasPressedThisFrame) UseBucket(right);
-            if (mouse.rightButton.wasPressedThisFrame) UseBucket(left);
+            if (mouse.leftButton.wasPressedThisFrame && right.has) UseBucket(right);
+            if (mouse.rightButton.wasPressedThisFrame && left.has) UseBucket(left);
         }
         else
         {
@@ -309,9 +335,9 @@ public class PlayerTools : MonoBehaviour
         Vector3 dipEul = new Vector3(40f, 0f, 0f);
 
         yield return Tween(h, pos0, dipPos, eul0, dipEul, 0.35f);
-        SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.waterFill : null, waterPoint, 0.9f);
-        Fx.Splash(waterPoint);
-        const float fillTime = 0.9f;
+        // Kuyu kovasindan el kovasina su aktarma: "water pouring out of bucket" kaydinin surekli akan kismi (2.6-4.5 sn)
+        if (SfxPlayer.I != null) SfxPlayer.PlaySnippet(SfxPlayer.I.bucketPour, waterPoint, 1.9f, 0.9f, 2.6f);
+        const float fillTime = 1.8f;
         float f0 = h.fill;
         for (float e = 0f; e < fillTime; e += Time.deltaTime)
         {
@@ -398,11 +424,11 @@ public class PlayerTools : MonoBehaviour
                 float width = Mathf.Max(0.07f, R * 1.1f);
                 for (int i = 0; i < n; i++)
                 {
-                    // Yuvarlak, genis akis: agizdan daire kesitli, disa dogru acilan bir su demeti
+                    // Genis, yuvarlak yayilim: acilan bir demet, menzil de degisken (daha buyuk alana sacilir)
                     Vector2 d = Random.insideUnitCircle;
                     Vector3 off = lat * d.x + Vector3.up * d.y;
                     Vector3 spawn = lip + off * width * 0.9f;
-                    Vector3 v = fwd * vOut + Vector3.down * 0.2f + off * 0.9f + Random.insideUnitSphere * 0.12f;
+                    Vector3 v = fwd * (vOut * Random.Range(0.7f, 1.35f)) + Vector3.down * 0.2f + off * 2.1f + Random.insideUnitSphere * 0.3f;
                     WaterSim.Emit(spawn + v * (Time.deltaTime * Random.value), v);
                 }
                 hissTimer -= Time.deltaTime;
@@ -491,6 +517,11 @@ public class PlayerTools : MonoBehaviour
         if (core == null)
         {
             var eRay = new Ray(cam.transform.position, cam.transform.forward);
+            bool lookWell = false;
+            foreach (var well in WaterWell.All)
+                if (well != null && well.LooksAt(eRay.origin, eRay.direction, reach + 1f)) { lookWell = true; break; }
+            var dropped = lookWell ? null : DroppedItem.Nearest(transform.position, 2.6f);
+            if (dropped != null) { PickUpDropped(dropped); return; }
             if (OreBin.I != null && OreBin.I.LooksAt(eRay, reach + 1f))
             {
                 int have = CoreCount;
@@ -509,33 +540,24 @@ public class PlayerTools : MonoBehaviour
                         BuildOreViews(h);
                     }
                 }
-                SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.pickup : null, OreBin.I.transform.position, 0.9f, 0.8f);
                 SetHint($"{moved} cevher depoya bosaltildi ({OreBin.I.Count}/{OreBin.I.capacity})");
                 return;
             }
-            foreach (var well in WaterWell.All)
-                if (well != null && well.LooksAt(eRay.origin, eRay.direction, reach + 1f)) { SetHint(well.Pull()); return; }
-            if (Raycast(out var wh))
-            {
-                var well2 = wh.collider.GetComponentInParent<WaterWell>();
-                if (well2 != null) { SetHint(well2.Pull()); return; }
-            }
-            SetHint("Yakinda cevher yok (kuyuya bakip E: su cek, depoya bakip E: cevher bosalt)");
+            if (lookWell) return;      // kuyu E tusunu kendi yonetir (basili tut: indir, doluyken bas: cek)
             return;
         }
         // Cevher kovaya girer: once yarisi dolu kova, sonra bos kova (kovada su varsa girmez)
         Hand target = null;
         foreach (var h in new[] { left, right })
-            if (h.ores > 0 && h.ores < OresPerBucket) { target = h; break; }
+            if (h.has && h.ores > 0 && h.ores < OresPerBucket) { target = h; break; }
         if (target == null)
             foreach (var h in new[] { left, right })
-                if (h.ores == 0 && h.fill < 0.05f) { target = h; break; }
+                if (h.has && h.ores == 0 && h.fill < 0.05f) { target = h; break; }
         if (target == null)
         {
-            SetHint(CoreCount >= CoreCapacity ? "Kovalar dolu (kova basi 5 cevher)" : "Kovada su var - once bosalt");
+            SetHint(!left.has && !right.has ? "Elinde kova yok" : CoreCount >= CoreCapacity ? "Kovalar dolu (kova basi 5 cevher)" : "Kovada su var - once bosalt");
             return;
         }
-        SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.pickup : null, core.transform.position, 0.8f);
         Destroy(core.gameObject);
         target.ores++;
         if (target.item != null)
@@ -546,6 +568,53 @@ public class PlayerTools : MonoBehaviour
         }
         SetHint($"Cevher kovaya girdi ({CoreCount}/{CoreCapacity})");
         StartCoroutine(ReachLeft());
+    }
+
+    // ---------- Yere birakma / alma ----------
+
+    Vector3 DropPoint() { return cam.transform.position + cam.transform.forward * 0.9f + Vector3.down * 0.45f; }
+
+    void DropBucket(Hand h)
+    {
+        if (!h.has || h.busy || CurrentTool != Tool.Buckets || h.item == null) return;
+        var item = h.item;
+        h.item = null; h.water = null;
+        float fill = h.fill; int ores = h.ores;
+        h.fill = 0f; h.ores = 0; h.has = false;
+        h.animPos = Vector3.zero; h.animEuler = Vector3.zero;
+        DroppedItem.Create(item, DroppedItem.Kind.Bucket, DropPoint(), cam.transform.forward * 1.5f + Vector3.up * 0.8f, fill, ores);
+        SetHint(h == left ? "Sol kova birakildi (E: al)" : "Sag kova birakildi (E: al)");
+    }
+
+    void DropPickaxe()
+    {
+        if (!hasPickaxe || right.busy || right.item == null) return;
+        var item = right.item;
+        right.item = null;
+        hasPickaxe = false;
+        right.animPos = Vector3.zero; right.animEuler = Vector3.zero;
+        DroppedItem.Create(item, DroppedItem.Kind.Pickaxe, DropPoint(), cam.transform.forward * 1.5f + Vector3.up * 0.8f, 0f, 0);
+        SetHint("Kazma birakildi (E: al)");
+        Equip(Tool.Buckets);
+    }
+
+    void PickUpDropped(DroppedItem d)
+    {
+        if (d.kind == DroppedItem.Kind.Pickaxe)
+        {
+            if (hasPickaxe) { SetHint("Zaten kazman var"); return; }
+            hasPickaxe = true;
+            Destroy(d.gameObject);
+            SetHint("Kazma alindi (3: kazmayi ele al)");
+            return;
+        }
+        // Kovalar sirayla alinir: once sol, sonra sag
+        Hand h = !left.has ? left : (!right.has ? right : null);
+        if (h == null) { SetHint("Iki kovan da elinde"); return; }
+        h.has = true; h.fill = d.fill; h.ores = d.ores;
+        Destroy(d.gameObject);
+        if (CurrentTool == Tool.Buckets) SpawnBucket(h);
+        SetHint(h == left ? "Sol kova alindi" : "Sag kova alindi");
     }
 
     IEnumerator ReachLeft()

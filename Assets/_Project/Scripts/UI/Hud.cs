@@ -44,6 +44,6 @@ public class Hud : MonoBehaviour
         // Kontroller
         string tool = tools.CurrentTool == Tool.Buckets ? "KOVALAR" : "KAZMA";
         GUI.Label(new Rect(pad, h - pad - h * 0.11f, w, h * 0.05f),
-            $"[{tool}]  1: Kovalar  2: Kazma  |  Sol/Sag tik: kullan (kovada basili tut = sac)  |  E: cekirdek al / kuyuya bakip su cek  |  WASD, Shift", label);
+            $"[{tool}]  1: Kovalar (kovalar elindeyken 1/2: sol/sag kovayi birak)  3: Kazma (Q: birak)  |  Sol/Sag tik: kullan  |  E: yerden al / cevher bosalt / kuyuda basili tut: kova indir, doluyken bas: cek", label);
     }
 }

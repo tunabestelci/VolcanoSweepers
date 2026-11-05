@@ -13,6 +13,8 @@ public class SfxPlayer : MonoBehaviour
     public AudioClip pickup;
     public AudioClip lavaAmbient;
     public AudioClip lavaSizzle;      // su lava dusunce (kaynayan balcik/lav sesi)
+    public AudioClip wellPump;        // kuyudan su cekme (pompa)
+    public AudioClip bucketPour;      // kuyu kovasindan el kovasina su aktarma
 
     void Awake()
     {
@@ -43,7 +45,7 @@ public class SfxPlayer : MonoBehaviour
     }
 
     // Uzun bir kayittan rastgele bir parca cal; yumusak girip cikar (parcalar ust uste binince surekli ses olur)
-    public static void PlaySnippet(AudioClip clip, Vector3 pos, float duration, float volume)
+    public static void PlaySnippet(AudioClip clip, Vector3 pos, float duration, float volume, float start = -1f)
     {
         if (clip == null) return;
         duration = Mathf.Min(duration, clip.length);
@@ -55,7 +57,7 @@ public class SfxPlayer : MonoBehaviour
         src.minDistance = 3f;
         src.maxDistance = 45f;
         src.volume = 0f;
-        src.time = Random.Range(0f, Mathf.Max(0f, clip.length - duration));
+        src.time = start >= 0f ? Mathf.Min(start, Mathf.Max(0f, clip.length - duration)) : Random.Range(0f, Mathf.Max(0f, clip.length - duration));
         src.Play();
         var f = go.AddComponent<SnippetFade>();
         f.src = src; f.duration = duration; f.volume = volume;

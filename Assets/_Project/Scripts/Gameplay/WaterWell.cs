@@ -1,8 +1,8 @@
-using System.Collections;
 using UnityEngine;
 
-// Su kuyusu: E ile kova kuyuya iner (donderme makarasi doner), dolar ve yukari cikar.
-// Kova dik ve sabit kalir (devrilmez); elimizdeki kovalar dogrudan ondan doldurulur.
+// Su kuyusu: E basili tutulunca kova kuyuya iner (donderme makarasi doner); suya ulasinca dolar.
+// Doluyken E'ye tekrar basinca kova yukari cekilir. Kova dik ve sabit kalir (devrilmez);
+// elimizdeki kovalar dogrudan ondan doldurulur.
 public class WaterWell : MonoBehaviour
 {
     public static readonly System.Collections.Generic.List<WaterWell> All = new System.Collections.Generic.List<WaterWell>();
@@ -29,10 +29,25 @@ public class WaterWell : MonoBehaviour
     public float logRadius = 0.175f;
     public float rimY;
 
-    bool busy;
+    // Pompa sesi kaydinda iki pompa darbesi ~4.4 sn; kova inis/cikis suresi buna gore ayarli
+    public const float TravelTime = 4.4f;
+    const float PumpStart = 2.2f, PumpLoopEnd = 6.6f;
+    const float FillTime = 1.2f;
+
+    enum S { Top, Lowering, Hanging, Filling, Down, Raising }
+    S state = S.Top;
+    float y;
+    float fillT, startFill;
+    public bool auto;                // test botu: basili tutmadan tam dongu
+    public string Hint { get; private set; } = "";
+    public bool Busy => state != S.Top;
+
+    bool inPressed, inHeld, inLooking;
     Vector3 bucketXZ;
     float bucketHalfH;
     float baseLen;
+    AudioSource pump;
+    float pumpVol;
 
     void Start()
     {
@@ -41,32 +56,150 @@ public class WaterWell : MonoBehaviour
 
     void Awake()
     {
+        pump = gameObject.AddComponent<AudioSource>();
+        pump.spatialBlend = 1f; pump.minDistance = 3f; pump.maxDistance = 40f; pump.loop = false; pump.volume = 0f;
         if (bucket == null) return;
         bucketXZ = bucket.position;
         bucketHalfH = 0.17f * bucket.localScale.y;
         baseLen = anchor.y - (topY + bucketHalfH);
+        y = topY;
         SetBucketY(topY);
     }
 
-    public string Pull()
+    // Oyuncu tarafindan her karede verilir
+    public void SetInput(bool pressed, bool held, bool looking)
     {
-        if (bucket == null || bucketFill == null) return "";
-        if (busy) return "Kova kuyuda...";
-        if (bucketFill.Fill > 0.98f) return "Kova zaten dolu - elindeki kovalari ondan doldur";
-        StartCoroutine(Run());
-        return "Kova kuyuya iniyor...";
+        inPressed |= pressed;
+        inHeld = held;
+        inLooking = looking;
     }
 
-    void SetBucketY(float y)
+    void Update()
     {
-        bucket.position = new Vector3(bucketXZ.x, y, bucketXZ.z);
-        float len = anchor.y - (y + bucketHalfH);
+        Step(inPressed, inHeld, inLooking);
+        inPressed = false;
+        inLooking = false;
+        inHeld = false;
+        UpdatePump();
+    }
+
+    void Step(bool pressed, bool held, bool looking)
+    {
+        if (bucket == null || bucketFill == null) return;
+        Hint = "";
+        if (auto) { held = true; looking = true; }
+        switch (state)
+        {
+            case S.Top:
+                if (!looking) break;
+                if (bucketFill.Fill > 0.98f && !auto) { Hint = "Kova dolu - elindeki kovalari ondan doldur"; break; }
+                Hint = "E basili tut: kovayi kuyuya indir";
+                if (pressed || auto) Begin(S.Lowering);
+                break;
+            case S.Lowering:
+                if (!held) { Begin(S.Hanging); break; }
+                Hint = "Kova iniyor...";
+                y -= (topY - bottomY) / TravelTime * Time.deltaTime;
+                if (y <= bottomY) { y = bottomY; StartFill(); }
+                SetBucketY(y);
+                break;
+            case S.Hanging:
+                if (looking) Hint = "E basili tut: kovayi indirmeye devam et";
+                if (pressed && looking) Begin(S.Lowering);
+                break;
+            case S.Filling:
+                Hint = "Kova doluyor...";
+                fillT += Time.deltaTime;
+                float k = Mathf.Clamp01(fillT / FillTime);
+                bucketFill.SetFill(Mathf.Lerp(startFill, 1f, k));
+                SetBucketY(bottomY + Mathf.Sin(fillT * 7f) * 0.03f * (1f - k));
+                if (fillT >= FillTime)
+                {
+                    bucketFill.SetFill(1f);
+                    SetBucketY(bottomY);
+                    state = S.Down;
+                }
+                break;
+            case S.Down:
+                if (looking) Hint = "E: kovayi yukari cek";
+                if ((pressed && looking) || auto) Begin(S.Raising);
+                break;
+            case S.Raising:
+                Hint = "Kova cekiliyor...";
+                y += (topY - bottomY) / TravelTime * Time.deltaTime;
+                if (y >= topY)
+                {
+                    y = topY;
+                    SetBucketY(y);
+                    bucketFill.locked = false;
+                    state = S.Top;
+                    auto = false;
+                    StopPump();
+                    break;
+                }
+                SetBucketY(y);
+                break;
+        }
+    }
+
+    void Begin(S s)
+    {
+        state = s;
+        if (s == S.Lowering || s == S.Raising)
+        {
+            bucketFill.locked = true;
+            bucket.rotation = Quaternion.identity;
+            StartPump();
+        }
+        else if (s == S.Hanging) StopPump();
+    }
+
+    void StartFill()
+    {
+        state = S.Filling;
+        fillT = 0f;
+        startFill = bucketFill.Fill;
+        StopPump();
+        Vector3 wp = new Vector3(bucketXZ.x, waterY, bucketXZ.z);
+        Fx.Splash(wp);
+        if (SfxPlayer.I != null) SfxPlayer.PlaySnippet(SfxPlayer.I.waterPour, wp, 1.6f, 0.9f);
+    }
+
+    // ---- pompa sesi ----
+    void StartPump()
+    {
+        var clip = SfxPlayer.I != null ? SfxPlayer.I.wellPump : null;
+        if (clip == null) return;
+        if (!pump.isPlaying || pump.clip != clip)
+        {
+            pump.clip = clip;
+            pump.time = PumpStart;
+            pump.Play();
+        }
+        pumpVol = 1f;
+    }
+
+    void StopPump() { pumpVol = 0f; }
+
+    void UpdatePump()
+    {
+        if (pump == null || pump.clip == null) return;
+        pump.volume = Mathf.MoveTowards(pump.volume, pumpVol * 0.9f, Time.deltaTime * 3f);
+        if (!pump.isPlaying) return;
+        if (pump.time > PumpLoopEnd) pump.time = PumpStart;
+        if (pumpVol <= 0f && pump.volume <= 0.01f) pump.Stop();
+    }
+
+    void SetBucketY(float yy)
+    {
+        bucket.position = new Vector3(bucketXZ.x, yy, bucketXZ.z);
+        float len = anchor.y - (yy + bucketHalfH);
         if (wheelPivot != null)
             wheelPivot.localRotation = Quaternion.Euler((len - baseLen) / logRadius * Mathf.Rad2Deg, 0f, 0f);
-        UpdateRope(y);
+        UpdateRope();
     }
 
-    void UpdateRope(float y)
+    void UpdateRope()
     {
         if (rope == null) return;
         Vector3 top = anchor;
@@ -76,47 +209,5 @@ public class WaterWell : MonoBehaviour
         rope.position = (top + bottom) * 0.5f;
         rope.rotation = Quaternion.FromToRotation(Vector3.up, d.normalized);
         rope.localScale = new Vector3(rope.localScale.x, len * 0.5f, rope.localScale.z);
-    }
-
-    static float Smooth(float k) { return k * k * (3f - 2f * k); }
-
-    IEnumerator Move(float from, float to, float dur)
-    {
-        for (float t = 0f; t < dur; t += Time.deltaTime)
-        {
-            SetBucketY(Mathf.Lerp(from, to, Smooth(t / dur)));
-            yield return null;
-        }
-        SetBucketY(to);
-    }
-
-    IEnumerator Run()
-    {
-        busy = true;
-        bucketFill.locked = true;                 // kova hareket ederken su alinamaz
-        bucket.rotation = Quaternion.identity;
-        float startFill = bucketFill.Fill;
-
-        // 1) Kuyuya in
-        yield return Move(topY, bottomY, 2.4f);
-
-        // 2) Suya degdi: sicrama + dolma
-        Vector3 wp = new Vector3(bucketXZ.x, waterY, bucketXZ.z);
-        Fx.Splash(wp);
-        if (SfxPlayer.I != null) SfxPlayer.Play(SfxPlayer.I.waterFill, wp, 1f, 0.9f);
-        const float fillTime = 0.9f;
-        for (float t = 0f; t < fillTime; t += Time.deltaTime)
-        {
-            bucketFill.SetFill(Mathf.Lerp(startFill, 1f, t / fillTime));
-            SetBucketY(bottomY + Mathf.Sin(t * 9f) * 0.03f);
-            yield return null;
-        }
-        bucketFill.SetFill(1f);
-
-        // 3) Cek: kova dik ve sabit yukarida kalir
-        yield return Move(bottomY, topY, 2.6f);
-
-        bucketFill.locked = false;
-        busy = false;
     }
 }
