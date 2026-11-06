@@ -20,6 +20,44 @@ public static class ShopSetup
     static readonly Vector3 MonsterSpot = new Vector3(0.99f, 1.3f, -1.85f);
     public const float MonsterWorldHeight = 1.38f;                                   // metre
 
+    const string LayoutPath = "Assets/_Project/ShopLayout.json";
+
+    [System.Serializable]
+    class Layout
+    {
+        public Vector3 shopOffset, monsterLocal;
+        public float shopYawOffset, monsterYaw, monsterScale;
+    }
+
+    // Sahnede elle ayarlanan dukkan/canavar konumunu kaydeder; Build All bunu korur.
+    [MenuItem("VolcanoSweepers/Save Shop Layout")]
+    public static void SaveLayout()
+    {
+        var shop = GameObject.Find("DragonShop");
+        var mon = GameObject.Find("LavaMonster");
+        var st = GameObject.Find("EquipmentStation");
+        if (shop == null || mon == null || st == null) { Debug.LogError("[Shop] dukkan/canavar/istasyon bulunamadi"); return; }
+        Vector3 toC = st.transform.position - shop.transform.position; toC.y = 0f;
+        float baseYaw = Quaternion.LookRotation(toC.normalized).eulerAngles.y;
+        var lay = new Layout
+        {
+            shopOffset = shop.transform.position - st.transform.position,
+            shopYawOffset = Mathf.DeltaAngle(baseYaw, shop.transform.eulerAngles.y),
+            monsterLocal = mon.transform.localPosition,
+            monsterYaw = mon.transform.localEulerAngles.y,
+            monsterScale = mon.transform.localScale.x,
+        };
+        File.WriteAllText(LayoutPath, JsonUtility.ToJson(lay, true));
+        AssetDatabase.ImportAsset(LayoutPath);
+        Debug.Log("[Shop] duzen kaydedildi: " + LayoutPath);
+    }
+
+    static Layout LoadLayout()
+    {
+        if (!File.Exists(LayoutPath)) return null;
+        try { return JsonUtility.FromJson<Layout>(File.ReadAllText(LayoutPath)); } catch { return null; }
+    }
+
     static Texture2D Tex(string p) { return AssetDatabase.LoadAssetAtPath<Texture2D>(p); }
 
     static void SetNormal(string path)
@@ -85,6 +123,7 @@ public static class ShopSetup
             var mi = AssetImporter.GetAtPath(ShopObj) as ModelImporter;
             if (mi != null)
             {
+                mi.isReadable = true;
                 mi.materialImportMode = ModelImporterMaterialImportMode.ImportStandard;
                 mi.materialLocation = ModelImporterMaterialLocation.InPrefab;
                 foreach (var kv in shopMats)
@@ -95,12 +134,13 @@ public static class ShopSetup
         var shopAsset = AssetDatabase.LoadAssetAtPath<GameObject>(ShopObj);
 
         // ---- Dukkani yerlestir ----
-        Vector3 P = c + ShopOffset;
+        var layout = LoadLayout();
+        Vector3 P = c + (layout != null ? layout.shopOffset : ShopOffset);
         Vector3 toC = c - P; toC.y = 0f;
         var shopRoot = new GameObject("DragonShop");
         shopRoot.transform.SetParent(root, false);
         shopRoot.transform.position = P;
-        shopRoot.transform.rotation = Quaternion.LookRotation(toC.normalized);   // tezgah (+Z) platform merkezine bakar
+        shopRoot.transform.rotation = Quaternion.LookRotation(toC.normalized) * Quaternion.Euler(0f, layout != null ? layout.shopYawOffset : 0f, 0f);   // tezgah (+Z) platform merkezine bakar
         if (shopAsset != null)
         {
             var model = (GameObject)PrefabUtility.InstantiatePrefab(shopAsset, shopRoot.transform);
@@ -132,13 +172,23 @@ public static class ShopSetup
                 r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
                 r.receiveShadows = true;
             }
-            // carpisma: arabanin govdesi ve ejderha
-                        var cart = shopRoot.AddComponent<BoxCollider>();
-            cart.center = ML(new Vector3(1.4f, 2.35f, -2.46f));
-            cart.size = new Vector3(6.05f, 4.7f, 6.1f) * ShopScale;
-            var dragon = shopRoot.AddComponent<BoxCollider>();
-            dragon.center = ML(new Vector3(0.43f, 0.55f, -0.7f));
-            dragon.size = new Vector3(8.3f, 1.4f, 6.8f) * ShopScale;
+            // Carpisma: gorunmez kutu yerine gercek mesh (tezgahin onune yaklasilabilir)
+            Renderer cartR = null, dragonR = null;
+            foreach (var r in model.GetComponentsInChildren<MeshRenderer>())
+            {
+                string n = r.name;
+                var mfi = r.GetComponent<MeshFilter>();
+                if (n.StartsWith("Carrito")) { cartR = r; }
+                else if (n.Contains("Dragon")) { dragonR = r; }
+                else continue;
+                var mc = r.gameObject.AddComponent<MeshCollider>();
+                mc.sharedMesh = mfi.sharedMesh;
+            }
+            if (dragonR != null)
+            {
+                var dragonAnim = dragonR.gameObject.AddComponent<DragonAnim>();
+                dragonAnim.cartRenderer = cartR;
+            }
         }
         else Debug.LogError("[Shop] model yuklenemedi: " + ShopObj);
 
@@ -191,9 +241,9 @@ public static class ShopSetup
         monster.name = "LavaMonster";
         // boyut: dunyada MonsterWorldHeight metre
         float s = MonsterWorldHeight / 2.14f;
-        monster.transform.localScale = Vector3.one * (s / 1f);
-        monster.transform.localPosition = ML(MonsterSpot);
-        monster.transform.localRotation = Quaternion.Euler(0f, MonsterYaw, 0f);
+        monster.transform.localScale = Vector3.one * (layout != null && layout.monsterScale > 0f ? layout.monsterScale : s);
+        monster.transform.localPosition = layout != null ? layout.monsterLocal : ML(MonsterSpot);
+        monster.transform.localRotation = Quaternion.Euler(0f, layout != null ? layout.monsterYaw : MonsterYaw, 0f);
         foreach (var r in monster.GetComponentsInChildren<SkinnedMeshRenderer>())
         {
             var arr = new Material[Mathf.Max(1, r.sharedMaterials.Length)];
@@ -207,6 +257,11 @@ public static class ShopSetup
         if (ctrl != null) anim.runtimeAnimatorController = ctrl;
         anim.applyRootMotion = false;
         anim.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+        var keeper = monster.AddComponent<ShopKeeper>();
+        var look = new GameObject("KeeperLook");
+        look.transform.SetParent(monster.transform, false);
+        look.transform.localPosition = new Vector3(0f, 1.0f, 0f);
+        keeper.lookPoint = look.transform;
         var gl = new GameObject("MonsterGlow");
         gl.transform.SetParent(monster.transform, false);
         gl.transform.localPosition = new Vector3(0f, 1.0f / s * 1f * s, 0.5f);

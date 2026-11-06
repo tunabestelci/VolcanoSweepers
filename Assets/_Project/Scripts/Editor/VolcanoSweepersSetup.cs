@@ -312,6 +312,7 @@ public static class VolcanoSweepersSetup
     class PrefabSet
     {
         public GameObject bucket, pickaxe, coreItem, coreVisual, magma, waterDrop;
+        public ItemSetup.Built items;
     }
 
     static PrefabSet BuildPrefabs(MatSet m)
@@ -349,6 +350,7 @@ public static class VolcanoSweepersSetup
         // Kazma
         var pick = Wrap("Pickaxe", Art + "/Models/Pickaxe/Pickaxe.fbx", 0.62f, PickaxeEuler, m.pickaxe, out _);
         ps.pickaxe = Save(pick, "Pickaxe");
+        ps.items = ItemSetup.Build(m.liquid, m.particle, ps.bucket, ps.pickaxe);
 
         // Litik cekirdek (yerdeki, alinabilir)
         var coreItem = Wrap("LithicCoreItem", Art + "/Models/LithicCore/LithicCore.obj", 0.28f, CoreEuler, m.core, out _);
@@ -391,6 +393,13 @@ public static class VolcanoSweepersSetup
             coreVisual = AssetDatabase.LoadAssetAtPath<GameObject>(Prefabs + "/LithicCoreVisual.prefab"),
             magma = AssetDatabase.LoadAssetAtPath<GameObject>(Prefabs + "/MagmaBall.prefab"),
         };
+        prefabs.items = new ItemSetup.Built
+        {
+            vessels = new[] { AssetDatabase.LoadAssetAtPath<GameObject>(Prefabs + "/Mug.prefab"), AssetDatabase.LoadAssetAtPath<GameObject>(Prefabs + "/Jug.prefab"), prefabs.bucket },
+            tools = new[] { AssetDatabase.LoadAssetAtPath<GameObject>(Prefabs + "/Spoon.prefab"), AssetDatabase.LoadAssetAtPath<GameObject>(Prefabs + "/Spatula.prefab"), prefabs.pickaxe },
+            torch = AssetDatabase.LoadAssetAtPath<GameObject>(Prefabs + "/Torch.prefab"),
+        };
+        TorchPrefab = prefabs.items.torch;
 
         var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
@@ -469,6 +478,7 @@ public static class VolcanoSweepersSetup
             var mesh = o as Mesh;
             if (mesh != null) { sim.mesh = mesh; break; }
         }
+        var eco = sys.AddComponent<Economy>();
         var sfx = sys.AddComponent<SfxPlayer>();
         // Lav sesleri: yalnizca kullanicinin verdigi "heavy bubbles" kaydi (su lava dokulunce)
         sfx.waterPour = AssetDatabase.LoadAssetAtPath<AudioClip>(Sfx + "water_splash.mp3");       // su dokme: water splash
@@ -521,10 +531,13 @@ public static class VolcanoSweepersSetup
         tools.leftHandRoot = lh;
         tools.rightHandRoot = rh;
         tools.bucketPrefab = prefabs.bucket;
+        tools.vesselPrefabs = prefabs.items.vessels;
+        tools.toolPrefabs = prefabs.items.tools;
         tools.pickaxePrefab = prefabs.pickaxe;
         tools.coreVisualPrefab = prefabs.coreVisual;
         tools.coreItemPrefab = prefabs.coreItem;
 
+        foreach (var k in Object.FindObjectsByType<ShopKeeper>(FindObjectsSortMode.None)) { k.tools = tools; k.player = pc; }
         var hud = sys.AddComponent<Hud>();
         hud.tools = tools;
         hud.field = field;
@@ -1167,6 +1180,8 @@ public static class VolcanoSweepersSetup
         return go;
     }
 
+    static GameObject TorchPrefab;
+
     static void BuildStation(MatSet m, Vector3 c, GameObject bucketPrefab)
     {
         var root = new GameObject("EquipmentStation").transform;
@@ -1321,17 +1336,17 @@ public static class VolcanoSweepersSetup
         Prim(PrimitiveType.Cube, "RackPostR", root, c + new Vector3(-1.5f, 0.6f, -5.2f), new Vector3(0.14f, 1.2f, 0.14f), m.wood);
 
         // Lamba diregi (sicak isik)
-        foreach (var off in new[] { new Vector3(-7.0f, 0f, 3.2f), new Vector3(7.2f, 0f, 2.0f) })
+        // Mesaleler (eski direkli lambalarin yerine)
+        foreach (var off in new[] { new Vector3(-7.0f, 0f, 3.2f), new Vector3(7.2f, 0f, 2.0f), new Vector3(-3.4f, 0f, -7.6f), new Vector3(3.6f, 0f, -7.4f) })
         {
-            Prim(PrimitiveType.Cylinder, "LampPost", root, c + off + new Vector3(0f, 1.6f, 0f), new Vector3(0.12f, 1.6f, 0.12f), m.metal);
-            var lampGo = new GameObject("LampLight");
-            lampGo.transform.SetParent(root, false);
-            lampGo.transform.position = c + off + new Vector3(0f, 3.4f, 0f);
-            var l = lampGo.AddComponent<Light>();
-            l.type = LightType.Point;
-            l.color = new Color(1f, 0.78f, 0.5f);
-            l.range = 14f;
-            l.intensity = 25f;
+            if (TorchPrefab == null) break;
+            var tgo = (GameObject)PrefabUtility.InstantiatePrefab(TorchPrefab, root);
+            PrefabUtility.UnpackPrefabInstance(tgo, PrefabUnpackMode.Completely, InteractionMode.AutomatedAction);
+            tgo.name = "Torch";
+            tgo.transform.position = c + off;
+            tgo.transform.rotation = Quaternion.Euler(Random.Range(-4f, 4f), Random.Range(0f, 360f), Random.Range(-4f, 4f));
+            var tcol = tgo.AddComponent<CapsuleCollider>();
+            tcol.center = new Vector3(0f, 0.7f, 0f); tcol.radius = 0.12f; tcol.height = 1.4f;
         }
     }
 

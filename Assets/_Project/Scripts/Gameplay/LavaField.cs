@@ -451,11 +451,11 @@ public class LavaField : MonoBehaviour
     }
 
     // Kazma vurusu: kabugu yipratir; kirilinca obsidyen alinir, cukur acilir ve golun hacminden dusulur
-    public MineResult Mine(Vector3 world, float radius = 0.6f)
+    public MineResult Mine(Vector3 world, float radius = 0.6f, float power = 0.34f)
     {
         float center = CrustAt(world);
         if (center < 0.3f) return MineResult.None;       // kabuk yok: acik lav (0.3 altinda yuzey katilasmaz)
-        Paint(world, radius, (i, w) => crust[i] = Mathf.Max(0f, crust[i] - 0.34f * w));
+        Paint(world, radius, (i, w) => crust[i] = Mathf.Max(0f, crust[i] - power * w));
         if (CrustAt(world) >= 0.3f) return MineResult.Chipped;
 
         Paint(world, radius * 1.15f, (i, w) =>
@@ -463,7 +463,7 @@ public class LavaField : MonoBehaviour
             crust[i] = Mathf.Max(0f, crust[i] - w * 1.2f);
             dig[i] = Mathf.Min(bed[i], dig[i] + digStep * 0.6f * w);     // gecici cukur: komsu lav doldurur
         });
-        pendingDrain += bedSum / Mathf.Max(1, breaksToEmpty);              // kalici hacim kaybi: tum goldeki seviye duser
+        pendingDrain += bedSum / Mathf.Max(1, breaksToEmpty) * Mathf.Clamp((radius * radius) / (0.6f * 0.6f), 0.15f, 1f);              // kalici hacim kaybi: tum goldeki seviye duser
         activeTimer = 30f;
         return MineResult.Broken;
     }

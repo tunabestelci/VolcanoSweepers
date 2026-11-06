@@ -44,9 +44,9 @@ public class BigBucket : MonoBehaviour
     }
 
     // Bir kucuk kova kadar su verir
-    public bool TryTake()
+    public bool TryTake(float units = 1f)
     {
-        float step = 1f / capacity;
+        float step = units / capacity;
         if (locked || fill < step - 0.001f) return false;
         SetFill(fill - step);
         return true;

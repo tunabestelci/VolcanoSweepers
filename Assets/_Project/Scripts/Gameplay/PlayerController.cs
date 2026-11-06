@@ -103,10 +103,10 @@ public class PlayerController : MonoBehaviour
         var mouse = Mouse.current;
         if (kb == null || mouse == null) return;
 
-        if (kb.escapeKey.wasPressedThisFrame) LockCursor(false);
+        if (kb.escapeKey.wasPressedThisFrame && !ShopKeeper.Open && ShopKeeper.LastClose != Time.frameCount) LockCursor(false);
         if (Cursor.lockState != CursorLockMode.Locked)
         {
-            if (mouse.leftButton.wasPressedThisFrame) LockCursor(true);
+            if (mouse.leftButton.wasPressedThisFrame && !ShopKeeper.Open) LockCursor(true);
             return;
         }
 

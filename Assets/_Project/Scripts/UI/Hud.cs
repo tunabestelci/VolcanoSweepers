@@ -44,20 +44,27 @@ public class Hud : MonoBehaviour
         GUI.color = new Color(1f, 0.5f, 0.1f, 1f);
         GUI.DrawTexture(new Rect(pad, pad + h * 0.05f, w * 0.25f * field.Progress, h * 0.014f), Texture2D.whiteTexture);
         GUI.color = Color.white;
-        GUI.Label(new Rect(pad, pad + h * 0.075f, w * 0.5f, h * 0.05f), $"Kovadaki cevher: {tools.CoreCount}/{tools.CoreCapacity}  (kova basi {PlayerTools.OresPerBucket})", label);
+        GUI.Label(new Rect(pad, pad + h * 0.075f, w * 0.5f, h * 0.05f), $"{tools.VesselName}: cevher {tools.CoreCount}/{tools.CoreCapacity}  (kap basi {tools.OreCap})", label);
 
         GUI.Label(new Rect(pad + w * 0.27f, pad + h * 0.0f, w * 0.3f, h * 0.05f), $"Lav seviyesi: {field.LavaLevel:F2} m", label);
+
+        if (Economy.I != null)
+        {
+            var big2 = new GUIStyle(big) { alignment = TextAnchor.UpperRight, fontSize = Mathf.RoundToInt(Screen.height * 0.036f) };
+            big2.normal.textColor = new Color(1f, 0.85f, 0.3f);
+            GUI.Label(new Rect(w - w * 0.3f - pad, pad, w * 0.3f, h * 0.06f), $"Para: {Economy.I.money}", big2);
+        }
 
         if (OreBin.I != null)
             GUI.Label(new Rect(pad, pad + h * 0.1f, w * 0.5f, h * 0.05f), $"Cevher deposu: {OreBin.I.Count}/{OreBin.I.capacity}", label);
 
         // Ipucu
-        if (!string.IsNullOrEmpty(tools.Hint))
+        if (!ShopKeeper.Open && !string.IsNullOrEmpty(tools.Hint))
             GUI.Label(new Rect(0f, h * 0.62f, w, h * 0.06f), tools.Hint, big);
 
         // Kontroller
-        string tool = tools.CurrentTool == Tool.Buckets ? "KOVALAR" : "KAZMA";
+        string tool = tools.CurrentTool == Tool.Buckets ? tools.VesselName.ToUpper() + "LAR" : tools.ToolName.ToUpper();
         GUI.Label(new Rect(pad, h - pad - h * 0.11f, w, h * 0.05f),
-            $"[{tool}]  1: Kovalar (kovalar elindeyken 1/2: sol/sag kovayi birak)  3: Kazma (Q: birak)  |  Sol/Sag tik: kullan  |  E: yerden al / cevher bosalt / kuyuda basili tut: kova indir, doluyken bas: cek", label);
+            $"[{tool}]  1: Kaplar (kaplar elindeyken 1/2: sol/sag kabi birak)  3: Kazma aleti (Q: birak)  |  Sol/Sag tik: kullan  |  E: yerden al / cevher bosalt / kuyuda basili tut: kova indir, doluyken bas: cek", label);
     }
 }

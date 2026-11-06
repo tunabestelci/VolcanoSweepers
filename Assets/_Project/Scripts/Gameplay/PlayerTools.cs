@@ -26,21 +26,29 @@ public class PlayerTools : MonoBehaviour
 
     bool hasPickaxe = true;
 
-    public const int OresPerBucket = 5;
 
     public PlayerController player;
     public Camera cam;
     public Transform leftHandRoot;
     public Transform rightHandRoot;
-    public GameObject bucketPrefab;
+    public GameObject bucketPrefab;               // kuyu kovasi ve eski ref (kullanilmaz)
     public GameObject pickaxePrefab;
+    public GameObject[] vesselPrefabs;            // bardak, surahi, kova
+    public GameObject[] toolPrefabs;              // kasik, spatula, kazma
+
+    GameObject VesselPrefab() { int t = Mathf.Clamp(Economy.VesselTier, 0, vesselPrefabs.Length - 1); return vesselPrefabs != null && vesselPrefabs.Length > 0 ? vesselPrefabs[t] : bucketPrefab; }
+    GameObject ToolPrefab() { int t = Mathf.Clamp(Economy.ToolTier, 0, toolPrefabs.Length - 1); return toolPrefabs != null && toolPrefabs.Length > 0 ? toolPrefabs[t] : pickaxePrefab; }
+    float Cap => Economy.VesselCapacity[Mathf.Clamp(Economy.VesselTier, 0, 2)];
+    public int OreCap => Economy.VesselOres[Mathf.Clamp(Economy.VesselTier, 0, 2)];
+    public string VesselName => Economy.VesselNames[Mathf.Clamp(Economy.VesselTier, 0, 2)];
+    public string ToolName => Economy.ToolNames[Mathf.Clamp(Economy.ToolTier, 0, 2)];
     public GameObject coreVisualPrefab;
     public float reach = 6f;
     public float pickupRange = 3.5f;
 
     public Tool CurrentTool { get; private set; } = Tool.Buckets;
     public int CoreCount => (left != null ? left.ores : 0) + (right != null ? right.ores : 0);
-    public int CoreCapacity => OresPerBucket * 2;
+    public int CoreCapacity => OreCap * 2;
     public string Hint { get; private set; } = "";
     float hintUntil;
 
@@ -54,6 +62,8 @@ public class PlayerTools : MonoBehaviour
         Equip(Tool.Buckets);
     }
 
+    void Start() { RefreshLoadout(); }       // Economy hazir olduktan sonra dogru kademeyle yeniden kur
+
     // Eller govdeye bagli: kovalar yanlarda asagida asili durur, bakinca/kullaninca one gelir
     Hand MakeHand(Transform root, float side)
     {
@@ -64,7 +74,9 @@ public class PlayerTools : MonoBehaviour
 
     static void SetDefaultPoses(Hand h, float side)
     {
-        h.carryPos = new Vector3(side * 0.42f, -0.78f, 0.14f);
+        // Kucuk kaplar daha yukarida (elde), kova sarkar
+        float cy = Economy.VesselTier == 0 ? -0.56f : (Economy.VesselTier == 1 ? -0.66f : -0.78f);
+        h.carryPos = new Vector3(side * 0.40f, cy, 0.22f);
         h.readyPos = new Vector3(side * 0.40f, -0.40f, 0.45f);
         h.carryEuler = Vector3.zero;
         h.readyEuler = Vector3.zero;
@@ -84,6 +96,29 @@ public class PlayerTools : MonoBehaviour
     public void DoPickup() { TryPickup(); }
     public void DoPull() { foreach (var w in WaterWell.All) if (w != null && !w.Busy) w.auto = true; }
     public void DoEquip(Tool t) { Equip(t); }
+
+    // Dukkandan alinan kap/alet elde yenilenir (su ve cevher korunur)
+    public void RefreshLoadout()
+    {
+        if (left == null) return;
+        left.busy = false; right.busy = false;
+        var t = CurrentTool;
+        float lf = left.fill, rf = right.fill; int lo = left.ores, ro = right.ores;
+        Equip(t);
+        left.fill = lf; right.fill = rf; left.ores = lo; right.ores = ro;
+        if (t == Tool.Buckets)
+        {
+            foreach (var h in new[] { left, right })
+                if (h.item != null)
+                {
+                    UpdateWater(h);
+                    var old = h.item.transform.Find("Ores"); if (old != null) Destroy(old.gameObject);
+                    BuildOreViews(h);
+                }
+        }
+    }
+
+    public void ShowHint(string text, float seconds = 2.2f) { SetHint(text, seconds); }
 
     // ---------- Alet degistirme ----------
 
@@ -105,7 +140,7 @@ public class PlayerTools : MonoBehaviour
         }
         else
         {
-            right.item = Instantiate(pickaxePrefab, right.root);
+            right.item = Instantiate(ToolPrefab(), right.root);
             right.item.transform.localPosition = Vector3.zero;
             // Kazma ucu one baksin (vurus yonunde), sap asagida
             right.item.transform.localRotation = Quaternion.Euler(0f, 0f, 0f);
@@ -129,7 +164,7 @@ public class PlayerTools : MonoBehaviour
 
     void SpawnBucket(Hand h)
     {
-        h.item = Instantiate(bucketPrefab, h.root);
+        h.item = Instantiate(VesselPrefab(), h.root);
         h.item.transform.localPosition = Vector3.zero;
         h.item.transform.localRotation = Quaternion.identity;
         var w = h.item.transform.Find("Water");
@@ -158,10 +193,11 @@ public class PlayerTools : MonoBehaviour
                 foreach (var r in rends) b.Encapsulate(r.bounds);
                 size = Mathf.Max(b.size.x, b.size.y, b.size.z, 0.0001f);
             }
-            o.transform.localScale = Vector3.one * (0.075f / size) * o.transform.localScale.x;
+            float vf = bw != null ? Mathf.Clamp(bw.rimRadius / 0.15f, 0.3f, 1f) : 1f;      // kap boyutuna gore
+            o.transform.localScale = Vector3.one * (0.075f * vf / size) * o.transform.localScale.x;
             float a = i * 2.4f;
-            float rad = i == 0 ? 0f : 0.045f;
-            o.transform.localPosition = new Vector3(Mathf.Cos(a) * rad, floorY + 0.03f + (i == 0 ? 0.035f : 0f), Mathf.Sin(a) * rad);
+            float rad = i == 0 ? 0f : 0.045f * vf;
+            o.transform.localPosition = new Vector3(Mathf.Cos(a) * rad, floorY + 0.03f * vf + (i == 0 ? 0.035f * vf : 0f), Mathf.Sin(a) * rad);
             o.transform.localRotation = Quaternion.Euler(i * 57f, i * 91f, i * 33f);
         }
     }
@@ -319,7 +355,7 @@ public class PlayerTools : MonoBehaviour
             if (h.ores > 0) { SetHint("Kovada cevher var - su alinamaz"); return; }
             if (h.fill > 0.95f) { SetHint("Kova zaten dolu"); return; }
             var big = source != null ? source.GetComponent<BigBucket>() : null;
-            if (big != null && !big.TryTake()) { SetHint(big.locked ? "Kova henuz yukari cikmadi" : "Kuyu kovasi bos - kuyuya bakip E ile su cek"); return; }
+            if (big != null && !big.TryTake(Cap)) { SetHint(big.locked ? "Kova henuz yukari cikmadi" : "Kuyu kovasi bos - kuyuya bakip E ile su cek"); return; }
             StartCoroutine(FillRoutine(h, point));
             return;
         }
@@ -415,7 +451,7 @@ public class PlayerTools : MonoBehaviour
             if (dFill > 0f)
             {
                 h.fill -= dFill;
-                emitCarry += dFill * ParticlesPerBucket;
+                emitCarry += dFill * ParticlesPerBucket * Cap;
                 int n = Mathf.FloorToInt(emitCarry);
                 emitCarry -= n;
                 Vector3 fwd = cam.transform.forward; fwd.y = 0f; fwd = fwd.sqrMagnitude > 1e-4f ? fwd.normalized : Vector3.forward;
@@ -461,8 +497,9 @@ public class PlayerTools : MonoBehaviour
         Vector3 hitPos = new Vector3(-0.05f, -0.12f, 0.28f);
         Vector3 hitEul = new Vector3(40f, 0f, 0f);
 
-        yield return Tween(right, Vector3.zero, windPos, Vector3.zero, windEul, 0.22f);
-        yield return Tween(right, windPos, hitPos, windEul, hitEul, 0.11f);
+        float sw = Economy.ToolSwingSpeed[Mathf.Clamp(Economy.ToolTier, 0, 2)];
+        yield return Tween(right, Vector3.zero, windPos, Vector3.zero, windEul, 0.22f * sw);
+        yield return Tween(right, windPos, hitPos, windEul, hitEul, 0.11f * sw);
 
         // Vurus aninda
         var field = LavaField.I;
@@ -472,7 +509,7 @@ public class PlayerTools : MonoBehaviour
             if (!field.IsLava(p, 1.5f)) { SetHint("Burada kazacak bir sey yok"); }
             else
             {
-                switch (field.Mine(p))
+                switch (field.Mine(p, Economy.ToolRadius[Mathf.Clamp(Economy.ToolTier, 0, 2)], Economy.ToolPower[Mathf.Clamp(Economy.ToolTier, 0, 2)]))
                 {
                     case MineResult.None:
                         SetHint(field.DigAt(p) > 0.97f ? "Ana kayaya ulastin" : "Once lavi suyla sogut");
@@ -488,11 +525,17 @@ public class PlayerTools : MonoBehaviour
                         SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.obsidianBreak : null, p, 1f);
                         player.Shake(0.035f, 0.15f);
                         SpawnCores(p);
+                        if (Economy.I != null)
+                        {
+                            int earn = Economy.ToolBreakMoney[Mathf.Clamp(Economy.ToolTier, 0, 2)];
+                            Economy.I.Earn(earn);
+                            SetHint($"+{earn} para", 0.9f);
+                        }
                         break;
                 }
             }
         }
-        yield return Tween(right, hitPos, Vector3.zero, hitEul, Vector3.zero, 0.3f);
+        yield return Tween(right, hitPos, Vector3.zero, hitEul, Vector3.zero, 0.3f * sw);
         nextSwing = Time.time + SwingPause;
         right.busy = false;
     }
@@ -529,6 +572,7 @@ public class PlayerTools : MonoBehaviour
                 Vector3 from = cam.transform.position + cam.transform.forward * 0.55f + side + Vector3.down * 0.3f;
                 h.ores--; moved++;
                 bin.Toss(from);
+                if (Economy.I != null) Economy.I.Earn(Economy.OreValue);
                 if (h.item != null)
                 {
                     var old = h.item.transform.Find("Ores");
@@ -540,7 +584,7 @@ public class PlayerTools : MonoBehaviour
             }
         }
         yield return new WaitForSeconds(0.5f);
-        SetHint($"{moved} cevher depoya dizildi ({bin.Count}/{bin.capacity})");
+        SetHint($"{moved} cevher depoya dizildi (+{moved * Economy.OreValue} para)");
         depositing = false;
     }
 
@@ -572,13 +616,13 @@ public class PlayerTools : MonoBehaviour
         // Cevher kovaya girer: once yarisi dolu kova, sonra bos kova (kovada su varsa girmez)
         Hand target = null;
         foreach (var h in new[] { left, right })
-            if (h.has && h.ores > 0 && h.ores < OresPerBucket) { target = h; break; }
+            if (h.has && h.ores > 0 && h.ores < OreCap) { target = h; break; }
         if (target == null)
             foreach (var h in new[] { left, right })
                 if (h.has && h.ores == 0 && h.fill < 0.05f) { target = h; break; }
         if (target == null)
         {
-            SetHint(!left.has && !right.has ? "Elinde kova yok" : CoreCount >= CoreCapacity ? "Kovalar dolu (kova basi 5 cevher)" : "Kovada su var - once bosalt");
+            SetHint(!left.has && !right.has ? "Elinde kap yok" : CoreCount >= CoreCapacity ? $"Kaplar dolu ({VesselName}: {OreCap} cevher)" : "Kapta su var - once bosalt");
             return;
         }
         Destroy(core.gameObject);
