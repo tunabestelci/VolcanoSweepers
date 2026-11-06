@@ -1312,6 +1312,9 @@ public static class VolcanoSweepersSetup
             bin.pileBaseLocal = new Vector3(0f, 0.06f, 0f);
             pileGo.SetActive(false);
         }
+        // Dragon Shop (gezici dukkan) ve icindeki lav canavari
+        ShopSetup.Build(root, c);
+
         // Alet rafi
         Prim(PrimitiveType.Cube, "RackBeam", root, c + new Vector3(-3f, 1.2f, -5.2f), new Vector3(3.2f, 0.12f, 0.12f), m.wood);
         Prim(PrimitiveType.Cube, "RackPostL", root, c + new Vector3(-4.5f, 0.6f, -5.2f), new Vector3(0.14f, 1.2f, 0.14f), m.wood);
