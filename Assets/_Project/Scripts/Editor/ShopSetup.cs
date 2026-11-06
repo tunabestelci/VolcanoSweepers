@@ -17,8 +17,8 @@ public static class ShopSetup
     static Vector3 ML(Vector3 objPos) { return (new Vector3(-objPos.x, objPos.y, objPos.z) - new Vector3(-ShopFootprintCenter.x, 0f, ShopFootprintCenter.z)) * ShopScale; }
     public static readonly Vector3 ShopOffset = new Vector3(1.5f, 0f, 6.2f);       // platform merkezine gore
     // Canavarin duracagi yer: tezgahin arkasi (OBJ uzayi)
-    static readonly Vector3 MonsterSpot = new Vector3(1.4f, 1.3f, -2.0f);
-    public const float MonsterWorldHeight = 1.25f;                                   // metre
+    static readonly Vector3 MonsterSpot = new Vector3(1.34f, 1.3f, -1.85f);
+    public const float MonsterWorldHeight = 1.1f;                                   // metre
 
     static Texture2D Tex(string p) { return AssetDatabase.LoadAssetAtPath<Texture2D>(p); }
 
