@@ -1321,7 +1321,7 @@ public static class VolcanoSweepersSetup
         Prim(PrimitiveType.Cube, "RackPostR", root, c + new Vector3(-1.5f, 0.6f, -5.2f), new Vector3(0.14f, 1.2f, 0.14f), m.wood);
 
         // Lamba diregi (sicak isik)
-        foreach (var off in new[] { new Vector3(-2.5f, 0f, 4.5f), new Vector3(7.2f, 0f, 2.0f) })
+        foreach (var off in new[] { new Vector3(-7.0f, 0f, 3.2f), new Vector3(7.2f, 0f, 2.0f) })
         {
             Prim(PrimitiveType.Cylinder, "LampPost", root, c + off + new Vector3(0f, 1.6f, 0f), new Vector3(0.12f, 1.6f, 0.12f), m.metal);
             var lampGo = new GameObject("LampLight");

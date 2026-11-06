@@ -11,14 +11,14 @@ public static class ShopSetup
     const string MonsterFbx = Art + "/Models/LavaMonster/LavaMonster.fbx";
 
     // Dukkanin model uzayi olcegi/konumu
-    public const float ShopScale = 0.8f;
+    public const float ShopScale = 1.0f;
     static readonly Vector3 ShopFootprintCenter = new Vector3(0.43f, 0f, -1.43f);  // modelin zemin merkezi (OBJ uzayi)
     // Unity OBJ iceri aktarirken X eksenini aynalar: model uzayindan yerel uzaya
     static Vector3 ML(Vector3 objPos) { return (new Vector3(-objPos.x, objPos.y, objPos.z) - new Vector3(-ShopFootprintCenter.x, 0f, ShopFootprintCenter.z)) * ShopScale; }
-    public static readonly Vector3 ShopOffset = new Vector3(1.5f, 0f, 6.2f);       // platform merkezine gore
+    public static readonly Vector3 ShopOffset = new Vector3(0.6f, 0f, 4.6f);       // platform merkezine gore
     // Canavarin duracagi yer: tezgahin arkasi (OBJ uzayi)
-    static readonly Vector3 MonsterSpot = new Vector3(1.34f, 1.3f, -1.85f);
-    public const float MonsterWorldHeight = 1.1f;                                   // metre
+    static readonly Vector3 MonsterSpot = new Vector3(0.99f, 1.3f, -1.85f);
+    public const float MonsterWorldHeight = 1.38f;                                   // metre
 
     static Texture2D Tex(string p) { return AssetDatabase.LoadAssetAtPath<Texture2D>(p); }
 
@@ -216,5 +216,5 @@ public static class ShopSetup
     }
 
     // FBX'in on yonu icin ince ayar (derece)
-    public static float MonsterYaw = 0f;
+    public static float MonsterYaw = 25f;
 }
