@@ -49,6 +49,8 @@ public class PlayerTools : MonoBehaviour
     public Tool CurrentTool { get; private set; } = Tool.Buckets;
     public int CoreCount => (left != null ? left.ores : 0) + (right != null ? right.ores : 0);
     public int CoreCapacity => OreCap * 2;
+    public float FillLeft => left != null && left.has ? left.fill : 0f;
+    public float FillRight => right != null && right.has ? right.fill : 0f;
     public string Hint { get; private set; } = "";
     float hintUntil;
 
@@ -75,16 +77,20 @@ public class PlayerTools : MonoBehaviour
     static void SetDefaultPoses(Hand h, float side)
     {
         // Kucuk kaplar daha yukarida (elde), kova sarkar
-        float cy = Economy.VesselTier == 0 ? -0.56f : (Economy.VesselTier == 1 ? -0.66f : -0.78f);
-        h.carryPos = new Vector3(side * 0.40f, cy, 0.22f);
+        float cy = Economy.VesselTier == 0 ? -0.46f : (Economy.VesselTier == 1 ? -0.58f : -0.78f);
+        float cx = Economy.VesselTier == 2 ? 0.40f : 0.34f;
+        h.carryPos = new Vector3(side * cx, cy, Economy.VesselTier == 2 ? 0.22f : 0.3f);
         h.readyPos = new Vector3(side * 0.40f, -0.40f, 0.45f);
         h.carryEuler = Vector3.zero;
         h.readyEuler = Vector3.zero;
     }
 
+    bool hintFromWell;
+
     void SetHint(string text, float seconds = 2.2f)
     {
         Hint = text;
+        hintFromWell = false;
         hintUntil = Time.time + seconds;
     }
 
@@ -127,6 +133,7 @@ public class PlayerTools : MonoBehaviour
         if (left.busy || right.busy) return;
         if (tool == Tool.Pickaxe && !hasPickaxe) { SetHint("Kazma yerde - E ile al"); return; }
         CurrentTool = tool;
+        scrapeBlend = 0f; scrapePose = false;
         ClearItem(left);
         ClearItem(right);
         if (heldCore != null) { Destroy(heldCore); heldCore = null; }
@@ -147,6 +154,12 @@ public class PlayerTools : MonoBehaviour
             // Kazma sag elde, onde ve hazir
             right.readyPos = new Vector3(0.36f, -0.42f, 0.55f);
             right.readyEuler = new Vector3(25f, 0f, -10f);
+            if (IsScraper)
+            {
+                // Kasik/spatula daha kucuk: kameraya yakin ve gorunur durur, kazirken ucu nisana iner
+                right.readyPos = new Vector3(0.28f, -0.28f, 0.54f);
+                right.readyEuler = new Vector3(12f, -6f, -8f);
+            }
             right.carryPos = right.readyPos;
             right.carryEuler = right.readyEuler;
             RefreshHeldCore();
@@ -222,7 +235,12 @@ public class PlayerTools : MonoBehaviour
         if (Time.time > hintUntil) Hint = "";
         var kb = Keyboard.current;
         var mouse = Mouse.current;
-        if (kb == null || mouse == null || Cursor.lockState != CursorLockMode.Locked) { Apply(left); Apply(right); return; }
+        if (kb == null || mouse == null || Cursor.lockState != CursorLockMode.Locked)
+        {
+            if (CurrentTool == Tool.Pickaxe && IsScraper) UpdateScrape(false);
+            Apply(left); Apply(right);
+            return;
+        }
 
         // Tus atamasi: 1 = kovalar (kovalar elindeyken 1: sol kovayi birak, 2: sag kovayi birak), 3 = kazma, Q = kazmayi birak
         if (kb.digit1Key.wasPressedThisFrame)
@@ -245,8 +263,12 @@ public class PlayerTools : MonoBehaviour
                 if (well == null) continue;
                 bool looking = well.LooksAt(ray.origin, ray.direction, reach + 1f);
                 well.SetInput(kb.eKey.wasPressedThisFrame, kb.eKey.isPressed, looking);
-                if (looking && !string.IsNullOrEmpty(well.Hint) && !(OreBin.I != null && OreBin.I.LooksAt(ray, reach + 1f)))
+                // Kuyunun ipucu, oyuncunun az once aldigi geri bildirimi (ornegin "bardak doluyor") ezmesin
+                if (looking && !string.IsNullOrEmpty(well.Hint) && !(OreBin.I != null && OreBin.I.LooksAt(ray, reach + 1f)) && (Hint == "" || hintFromWell))
+                {
                     SetHint(well.Hint, 0.3f);
+                    hintFromWell = true;
+                }
             }
         }
 
@@ -254,6 +276,10 @@ public class PlayerTools : MonoBehaviour
         {
             if (mouse.leftButton.wasPressedThisFrame && right.has) UseBucket(right);
             if (mouse.rightButton.wasPressedThisFrame && left.has) UseBucket(left);
+        }
+        else if (IsScraper)
+        {
+            UpdateScrape(mouse.leftButton.isPressed || botHoldScrape);       // kasik/spatula: basili tutarak yuzeyi kazir
         }
         else
         {
@@ -324,6 +350,18 @@ public class PlayerTools : MonoBehaviour
             point = ray.origin + ray.direction * Mathf.Max(0f, bestT - bestWs.PickRadius * 0.4f);
             return true;
         }
+        // Kuyuya bakmak yeterli: kuyu kovasi yukaridaysa nisan tam kovada olmasa da ondan su alinir (kucuk kaplar icin)
+        foreach (var well in WaterWell.All)
+        {
+            if (well == null || well.bucketFill == null || well.bucketFill.locked) continue;
+            if (!well.LooksAt(ray.origin, ray.direction, reach)) continue;
+            var ws = well.bucketFill.GetComponent<WaterSource>();
+            if (ws == null) continue;
+            isWater = true;
+            source = ws;
+            point = ws.transform.position;
+            return true;
+        }
         bool physHit = Raycast(out var hit);
         if (physHit)
         {
@@ -353,13 +391,14 @@ public class PlayerTools : MonoBehaviour
         if (isWater)
         {
             if (h.ores > 0) { SetHint("Kovada cevher var - su alinamaz"); return; }
-            if (h.fill > 0.95f) { SetHint("Kova zaten dolu"); return; }
+            if (h.fill > 0.95f) { SetHint($"{VesselName} zaten dolu"); return; }
             var big = source != null ? source.GetComponent<BigBucket>() : null;
-            if (big != null && !big.TryTake(Cap)) { SetHint(big.locked ? "Kova henuz yukari cikmadi" : "Kuyu kovasi bos - kuyuya bakip E ile su cek"); return; }
+            if (big != null && !big.TryTake(Cap)) { SetHint(big.locked ? "Kuyu kovasi henuz yukari cikmadi" : "Kuyu kovasi bos - kuyuya bakip E ile su cek"); return; }
+            SetHint($"{VesselName} doluyor...", 1.2f);
             StartCoroutine(FillRoutine(h, point));
             return;
         }
-        if (h.fill < 0.05f) { SetHint("Kova bos - buyuk kovadan doldur"); return; }
+        if (h.fill < 0.05f) { SetHint($"{VesselName} bos - kuyu kovasindan doldur"); return; }
         StartCoroutine(PourRoutine(h));
     }
 
@@ -487,6 +526,89 @@ public class PlayerTools : MonoBehaviour
         h.busy = false;
     }
 
+    // ---------- Kasik / spatula: basili tutarak yuzeyi kazima ----------
+
+    public bool botHoldScrape;                                  // test botu icin
+    bool IsScraper => Economy.ToolTier < 2;
+    static readonly float[] ScrapeRate = { 2.0f, 2.5f };        // saniyedeki kazima hareketi
+    const float ScrapeTick = 0.1f;                              // kazima darbesi araligi
+    const float ScrapePowerFactor = 0.55f;                     // darbe basina guc (kademenin gucunun orani)
+    float scrapeBlend, scrapePhase, scrapeTickT, scrapeFxT, scrapeSndT;
+    bool scrapePose;
+
+    void UpdateScrape(bool held)
+    {
+        int tier = Mathf.Clamp(Economy.ToolTier, 0, 1);
+        bool can = held && !right.busy && !ShopKeeper.Open;
+        scrapeBlend = Mathf.MoveTowards(scrapeBlend, can ? 1f : 0f, Time.deltaTime * (can ? 6f : 4f));
+        if (scrapeBlend <= 0.001f && !can)
+        {
+            if (scrapePose) { right.animPos = Vector3.zero; right.animEuler = Vector3.zero; scrapePose = false; }
+            return;
+        }
+        scrapePose = true;
+        if (can) scrapePhase += Time.deltaTime * ScrapeRate[tier];
+        float ph = scrapePhase * Mathf.PI * 2f;
+        float s = Mathf.Sin(ph), c = Mathf.Cos(ph);
+        // Uc yuzeye bastirilir; el sag-sola suruklenir, her yon degisiminde kisa bir bastirma
+        Vector3 pos = new Vector3(-0.05f + s * 0.07f, 0.03f + Mathf.Abs(c) * 0.012f, 0.14f + c * 0.03f);
+        Vector3 eul = new Vector3(20f + c * 4f, -4f - s * 12f, s * 9f);
+        right.animPos = pos * scrapeBlend;
+        right.animEuler = eul * scrapeBlend;
+        if (!can) return;
+
+        scrapeTickT += Time.deltaTime;
+        if (scrapeTickT < ScrapeTick) return;
+        scrapeTickT = 0f;
+        ScrapeHit(s, tier);
+    }
+
+    void ScrapeHit(float sweep, int tier)
+    {
+        var field = LavaField.I;
+        if (field == null) return;
+        var ray = new Ray(cam.transform.position, cam.transform.forward);
+        if (!field.Raycast(ray, reach, out var p)) return;
+        Vector3 right3 = cam.transform.right; right3.y = 0f; right3.Normalize();
+        p += right3 * sweep * 0.12f;                      // kazima hareketiyle birlikte hedef de yana suruklenir
+        p.y = field.HeightAt(p);
+        if (!field.IsLava(p, 1.5f)) { if (Hint == "") SetHint("Burada kazacak bir sey yok", 0.8f); return; }
+        switch (field.Mine(p, Economy.ToolRadius[tier], Economy.ToolPower[tier] * ScrapePowerFactor))
+        {
+            case MineResult.None:
+                if (Hint == "") SetHint(field.DigAt(p) > 0.97f ? "Ana kayaya ulastin" : "Once lavi suyla sogut", 0.8f);
+                break;
+            case MineResult.Chipped:
+                scrapeFxT -= ScrapeTick; scrapeSndT -= ScrapeTick;
+                if (scrapeFxT <= 0f) { scrapeFxT = 0.14f; Fx.Chips(p + Vector3.up * 0.04f, 3); }
+                if (scrapeSndT <= 0f)
+                {
+                    scrapeSndT = 0.2f;
+                    SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.pickaxeHit : null, p, 0.35f, 1.35f, 0.12f);
+                }
+                player.Shake(0.004f, 0.06f);
+                break;
+            case MineResult.Broken:
+                OnObsidianBroken(p);
+                break;
+        }
+    }
+
+    void OnObsidianBroken(Vector3 p)
+    {
+        Fx.Chips(p + Vector3.up * 0.1f, 26);
+        SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.pickaxeHit : null, p, 1f);
+        SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.obsidianBreak : null, p, 1f);
+        player.Shake(0.035f, 0.15f);
+        SpawnCores(p);
+        if (Economy.I != null)
+        {
+            int earn = Economy.ToolBreakMoney[Mathf.Clamp(Economy.ToolTier, 0, 2)];
+            Economy.I.Earn(earn);
+            SetHint($"+{earn} para", 0.9f);
+        }
+    }
+
     // ---------- Kazma ----------
 
     IEnumerator SwingPickaxe()
@@ -520,17 +642,7 @@ public class PlayerTools : MonoBehaviour
                         player.Shake(0.02f, 0.1f);
                         break;
                     case MineResult.Broken:
-                        Fx.Chips(p + Vector3.up * 0.1f, 26);
-                        SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.pickaxeHit : null, p, 1f);
-                        SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.obsidianBreak : null, p, 1f);
-                        player.Shake(0.035f, 0.15f);
-                        SpawnCores(p);
-                        if (Economy.I != null)
-                        {
-                            int earn = Economy.ToolBreakMoney[Mathf.Clamp(Economy.ToolTier, 0, 2)];
-                            Economy.I.Earn(earn);
-                            SetHint($"+{earn} para", 0.9f);
-                        }
+                        OnObsidianBroken(p);
                         break;
                 }
             }

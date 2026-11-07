@@ -44,7 +44,8 @@ public class Hud : MonoBehaviour
         GUI.color = new Color(1f, 0.5f, 0.1f, 1f);
         GUI.DrawTexture(new Rect(pad, pad + h * 0.05f, w * 0.25f * field.Progress, h * 0.014f), Texture2D.whiteTexture);
         GUI.color = Color.white;
-        GUI.Label(new Rect(pad, pad + h * 0.075f, w * 0.5f, h * 0.05f), $"{tools.VesselName}: cevher {tools.CoreCount}/{tools.CoreCapacity}  (kap basi {tools.OreCap})", label);
+        GUI.Label(new Rect(pad, pad + h * 0.075f, w * 0.7f, h * 0.05f),
+            $"{tools.VesselName}: su sol %{Mathf.RoundToInt(tools.FillLeft * 100f)} / sag %{Mathf.RoundToInt(tools.FillRight * 100f)}  |  cevher {tools.CoreCount}/{tools.CoreCapacity} (kap basi {tools.OreCap})", label);
 
         GUI.Label(new Rect(pad + w * 0.27f, pad + h * 0.0f, w * 0.3f, h * 0.05f), $"Lav seviyesi: {field.LavaLevel:F2} m", label);
 
@@ -65,6 +66,6 @@ public class Hud : MonoBehaviour
         // Kontroller
         string tool = tools.CurrentTool == Tool.Buckets ? tools.VesselName.ToUpper() + "LAR" : tools.ToolName.ToUpper();
         GUI.Label(new Rect(pad, h - pad - h * 0.11f, w, h * 0.05f),
-            $"[{tool}]  1: Kaplar (kaplar elindeyken 1/2: sol/sag kabi birak)  3: Kazma aleti (Q: birak)  |  Sol/Sag tik: kullan  |  E: yerden al / cevher bosalt / kuyuda basili tut: kova indir, doluyken bas: cek", label);
+            $"[{tool}]  1: Kaplar (kaplar elindeyken 1/2: sol/sag kabi birak)  3: Kazma aleti (Q: birak)  |  Kovalar: sag tik sol kap, sol tik sag kap  |  Kasik/spatula: sol tik BASILI TUT = kazi  |  E: yerden al / cevher bosalt / kuyuda basili tut: kova indir, doluyken bas: cek", label);
     }
 }
