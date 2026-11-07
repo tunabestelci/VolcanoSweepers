@@ -448,6 +448,8 @@ public class LavaField : MonoBehaviour
             if (bed[i] - dig[i] < 0.03f) return;      // kuru/cok sigi: kabuk olusmaz
             crust[i] = Mathf.Min(1f, crust[i] + amount * w);
         });
+        // yeni ust tabaka: kasik izi kapanir, tekrar kazinabilir
+        if (ScrapeMarks.I != null) ScrapeMarks.I.Erase(world, radius, amount);
     }
 
     // Kazma vurusu: kabugu yipratir; kirilinca obsidyen alinir, cukur acilir ve golun hacminden dusulur
@@ -463,6 +465,7 @@ public class LavaField : MonoBehaviour
             crust[i] = Mathf.Max(0f, crust[i] - w * 1.2f);
             dig[i] = Mathf.Min(bed[i], dig[i] + digStep * 0.6f * w);     // gecici cukur: komsu lav doldurur
         });
+        if (ScrapeMarks.I != null) ScrapeMarks.I.Erase(world, radius * 1.15f, 1f);
         pendingDrain += bedSum / Mathf.Max(1, breaksToEmpty) * Mathf.Clamp((radius * radius) / (0.6f * 0.6f), 0.15f, 1f);              // kalici hacim kaybi: tum goldeki seviye duser
         activeTimer = 30f;
         return MineResult.Broken;

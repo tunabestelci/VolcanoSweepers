@@ -33,7 +33,8 @@ public class Hud : MonoBehaviour
 
         // Nisangah
         GUI.color = new Color(1f, 1f, 1f, 0.85f);
-        GUI.DrawTexture(new Rect(w / 2f - 2f, h / 2f - 2f, 4f, 4f), Texture2D.whiteTexture);
+        if (!tools.ScrapeActive)
+            GUI.DrawTexture(new Rect(w / 2f - 2f, h / 2f - 2f, 4f, 4f), Texture2D.whiteTexture);
 
         // Ilerleme
         float pad = h * 0.025f;
@@ -59,6 +60,23 @@ public class Hud : MonoBehaviour
         if (OreBin.I != null)
             GUI.Label(new Rect(pad, pad + h * 0.1f, w * 0.5f, h * 0.05f), $"Cevher deposu: {OreBin.I.Count}/{OreBin.I.capacity}", label);
 
+        // Kazima: aletin ucunda biriken kirinti (dikey dolum gostergesi + gram)
+        if (tools.ScrapeActive)
+        {
+            float cap = Mathf.Max(1f, tools.TipCapacity);
+            float load = tools.Scooping ? 0f : tools.TipLoad;
+            float k = Mathf.Clamp01(load / cap);
+            float bw = h * 0.035f, bh = h * 0.11f, bx = pad, by = h - pad - h * 0.24f;
+            GUI.color = new Color(0f, 0f, 0f, 0.55f);
+            GUI.DrawTexture(new Rect(bx, by, bw, bh), Texture2D.whiteTexture);
+            GUI.color = load >= cap - 4f ? new Color(1f, 0.35f, 0.2f, 0.95f) : new Color(0.8f, 0.78f, 0.9f, 0.9f);
+            GUI.DrawTexture(new Rect(bx + 3f, by + 3f + (bh - 6f) * (1f - k), bw - 6f, (bh - 6f) * k), Texture2D.whiteTexture);
+            GUI.color = Color.white;
+            var meter = new GUIStyle(big) { alignment = TextAnchor.MiddleLeft };
+            GUI.Label(new Rect(bx + bw + pad * 0.6f, by + bh * 0.25f, w * 0.5f, bh * 0.5f),
+                $"{tools.ToolName.ToUpper()} UCU  {load:F0} / {cap:F0} g", meter);
+        }
+
         // Ipucu
         if (!ShopKeeper.Open && !string.IsNullOrEmpty(tools.Hint))
             GUI.Label(new Rect(0f, h * 0.62f, w, h * 0.06f), tools.Hint, big);
@@ -66,6 +84,6 @@ public class Hud : MonoBehaviour
         // Kontroller
         string tool = tools.CurrentTool == Tool.Buckets ? tools.VesselName.ToUpper() + "LAR" : (tools.CurrentTool == Tool.Breaker ? tools.BreakerName.ToUpper() : tools.ToolName.ToUpper());
         GUI.Label(new Rect(pad, h - pad - h * 0.10f, w, h * 0.10f),
-            $"[{tool}]  1: Kaplar  3: Kaziyici  4: Kirici  |  Kaziyici: sol tik BASILI TUT + fareyi sur  |  Cekic: sol tik vur  |  Matkap/kirici: sol tik BASILI TUT\nKovalar: sol/sag tik  |  E: yerden al / cevher bosalt / kuyuda basili tut: kova indir", label);
+            $"[{tool}]  1: Kaplar  3: Kaziyici  4: Kirici  |  Kaziyici: sol tik BASILI TUT + fareyi sur, birak: topla  |  Cekic: sol tik vur  |  Matkap/kirici: sol tik BASILI TUT\nKovalar: sol/sag tik  |  E: yerden al / cevher bosalt / kuyuda basili tut: kova indir", label);
     }
 }

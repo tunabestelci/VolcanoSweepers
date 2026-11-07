@@ -7,6 +7,7 @@ public class LithicCoreItem : MonoBehaviour
     public static readonly List<LithicCoreItem> All = new List<LithicCoreItem>();
 
     public float radius = 0.1f;
+    public bool external;           // kazima kirinti simulasyonu (ScrapeDebris) bu parcayi tasiyor/itiyor
     Vector3 vel;
     Vector3 spin;
 
@@ -21,6 +22,7 @@ public class LithicCoreItem : MonoBehaviour
 
     void Update()
     {
+        if (external) { vel = Vector3.zero; spin = Vector3.zero; return; }
         var field = LavaField.I;
         float dt = Time.deltaTime;
         vel.y -= 9.81f * dt;

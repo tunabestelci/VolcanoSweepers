@@ -45,6 +45,10 @@ Shader "VolcanoSweepers/LavaCrust"
                 float4 _Bedrock;
             CBUFFER_END
 
+            // Kasik/spatula izi (ScrapeMarks): global, 1.5 cm cozunurluklu pencere. xy: pencere kosesi (dunya xz), zw: 1/boyut
+            TEXTURE2D(_ScrapeMarks); SAMPLER(sampler_ScrapeMarks);
+            float4 _ScrapeRect;
+
             struct Attributes
             {
                 float4 positionOS : POSITION;
@@ -166,6 +170,33 @@ Shader "VolcanoSweepers/LavaCrust"
                 float3 albedo = lerp(lava * 0.35, obs, c);
                 float smooth = lerp(0.25, obsMS.a, c);
                 float metallic = lerp(0.0, obsMS.r, c);
+
+                // Kasik izi: ust tabakasi soyulmus taze obsidyen (daha acik, cam gibi parlak), hafif cukur ve kenarinda murekkep cizgisi
+                float2 suv = (IN.positionWS.xz - _ScrapeRect.xy) * _ScrapeRect.zw;
+                if (_ScrapeRect.z > 0.0 && suv.x > 0.0 && suv.y > 0.0 && suv.x < 1.0 && suv.y < 1.0)
+                {
+                    float tu = 0.015 * _ScrapeRect.z;
+                    float s0  = SAMPLE_TEXTURE2D_LOD(_ScrapeMarks, sampler_ScrapeMarks, suv, 0).r;
+                    float sxp = SAMPLE_TEXTURE2D_LOD(_ScrapeMarks, sampler_ScrapeMarks, suv + float2(tu, 0), 0).r;
+                    float sxn = SAMPLE_TEXTURE2D_LOD(_ScrapeMarks, sampler_ScrapeMarks, suv - float2(tu, 0), 0).r;
+                    float szp = SAMPLE_TEXTURE2D_LOD(_ScrapeMarks, sampler_ScrapeMarks, suv + float2(0, tu), 0).r;
+                    float szn = SAMPLE_TEXTURE2D_LOD(_ScrapeMarks, sampler_ScrapeMarks, suv - float2(0, tu), 0).r;
+                    float crustK = c * lavaAmt;
+                    float scr = smoothstep(0.1, 0.55, s0) * crustK;
+                    float2 g = float2(sxp - sxn, szp - szn);
+                    // soyulan yer cevresinden alcak: kenar basamagi isigi yakalar
+                    normalWS = normalize(lerp(normalWS, nGeo, scr * 0.8) + float3(g.x, 0.0, g.y) * 0.3 * crustK);
+                    // ince kazima cizikleri (yuksek frekansli doku)
+                    float streak = SAMPLE_TEXTURE2D(_ObsMap, sampler_ObsMap, meters * 3.1).r;
+                    // taze yuzey: ayni obsidyen dokusu ama tozsuz, biraz acik ve serin tonlu, cila gibi parlak
+                    float3 fresh = obs * 0.7 + float3(0.075, 0.07, 0.095) * (0.8 + 0.4 * streak);
+                    albedo = lerp(albedo, fresh, scr);
+                    smooth = lerp(smooth, 0.96, scr);
+                    metallic = lerp(metallic, 0.0, scr);
+                    float ink = smoothstep(0.05, 0.2, s0) * (1.0 - smoothstep(0.28, 0.55, s0)) * crustK;
+                    albedo = lerp(albedo, float3(0.006, 0.005, 0.008), ink * 0.95);
+                    smooth = lerp(smooth, 0.2, ink);
+                }
 
                 float pulse = 0.85 + 0.2 * sin(_Time.y * 1.7 + noise * 6.0);
                 float edge = smoothstep(0.0, 0.3, c) * (1.0 - smoothstep(0.55, 0.95, c));

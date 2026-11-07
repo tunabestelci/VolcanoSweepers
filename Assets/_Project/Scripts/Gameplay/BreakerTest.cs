@@ -138,7 +138,8 @@ public class BreakerTest : MonoBehaviour
                 Vector3 p = Stage();
                 yield return new WaitForSeconds(0.6f);
                 player.LookAt(p);
-                field.AddCrust(p, 2.0f, 1f);
+                field.AddCrust(p, 4.5f, 1f);
+                field.AddCrust(p, 3.0f, 1f);
                 yield return new WaitForSeconds(0.2f);
                 tools.botHoldScrape = true;
                 yield return new WaitForSeconds(0.6f);
@@ -146,26 +147,89 @@ public class BreakerTest : MonoBehaviour
                 if (f0.sqrMagnitude > 1f) break;
             }
             Log($"scrape focus attempt result: {f0}");
-            // kirintilar: kirici ile kirilmis gibi, firca alaninin yakinina parca sacilir
+            // kirici ile kirilmis gibi birkac cevher: alet yaklasinca yigina katilmali
             var sc = typeof(PlayerTools).GetMethod("SpawnCores", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            for (int k = 0; k < 3; k++) sc.Invoke(tools, new object[] { f0 + new Vector3(0.25f * (k - 1), 0f, 0.3f) });
+            sc.Invoke(tools, new object[] { f0 + new Vector3(0.1f, 0f, 0.55f) });
             yield return new WaitForSeconds(0.8f);
-            int rubble0 = LithicCoreItem.All.Count;
-            float RingMean(Vector3 c) { float sum = 0f; int cn = 0; for (int a2 = 0; a2 < 12; a2++) { float ang = a2 * 0.5236f; for (float rr = 0.1f; rr <= 0.5f; rr += 0.2f) { sum += field.CrustAt(c + new Vector3(Mathf.Cos(ang) * rr, 0f, Mathf.Sin(ang) * rr)); cn++; } } return sum / cn; }
-            float crust0 = RingMean(f0); int money0 = eco.money;
-            Log($"scrape start: focus={f0} ringCrust={crust0:F2} rubble={rubble0} money={money0} vesselOres={tools.CoreCount}");
-            float t0 = Time.time; bool shot = false;
-            while (Time.time - t0 < 7f)
             {
-                float ph = (Time.time - t0) * 3.2f;
-                tools.botScrapeDelta = new Vector2(Mathf.Cos(ph) * 3.2f, Mathf.Sin(ph * 0.5f) * 1.2f);
-                if (!shot && Time.time - t0 > 3.5f) { shot = true; yield return Shot("scrape_mid"); }
-                yield return null;
+                // iki cevheri kasigin itme yoluna koy (aletin ucunun 25-40 cm onu)
+                var fFwd = typeof(PlayerTools).GetField("scrapeFwd", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                Vector3 fw = (Vector3)fFwd.GetValue(tools);
+                Vector3 tip = ScrapeDebris.I != null ? ScrapeDebris.I.ToolContactWorld : f0;
+                for (int kk = 0; kk < 2; kk++)
+                {
+                    Vector3 cp = tip + fw * (0.3f + 0.3f * kk);
+                    cp.y = field.HeightAt(cp) + 0.06f;
+                    var go = Instantiate(tools.coreItemPrefab, cp, Random.rotation);
+                    go.transform.localScale *= 0.55f;
+                }
+                yield return null; yield return null;
+                Log("  after place: " + ScrapeDebris.I.Stats());
+                yield return new WaitForSeconds(0.4f);
+                Log("  after 0.4s: " + ScrapeDebris.I.Stats());
+                Log($"cores placed ahead of tip {tip} fwd {fw}; coreRoom={typeof(PlayerTools).GetMethod("CoreRoom", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).Invoke(tools, null)}");
             }
-            tools.botScrapeDelta = Vector2.zero; tools.botHoldScrape = false;
-            Log($"scrape end: ringCrust={RingMean(f0):F2} (taban 0.55, delmemeli) rubble={LithicCoreItem.All.Count} money={eco.money} (+{eco.money - money0}) vesselOres={tools.CoreCount}/{tools.CoreCapacity} hint='{tools.Hint}'");
-            yield return new WaitForSeconds(1.0f);
-            yield return Shot("scrape_after");
+            // duz itis: cevherler kasigin burnuna takilmali
+            {
+                float tc = Time.time;
+                while (Time.time - tc < 1.2f)
+                {
+                    tools.botScrapeDelta = new Vector2(0f, 3.6f);
+                    yield return null;
+                }
+                tools.botScrapeDelta = Vector2.zero;
+                yield return new WaitForSeconds(0.15f);
+                Log("  straight push: " + ScrapeDebris.I.Stats());
+                yield return Shot("core_push");
+            }
+            int money0 = eco.money;
+            Log($"scrape start: focus={f0} cores={LithicCoreItem.All.Count} money={money0} vesselOres={tools.CoreCount}");
+            var deb = ScrapeDebris.I;
+            for (int round = 0; round < 4; round++)
+            {
+                float t0 = Time.time; int lastStroke = -1; float ftSum = 0f, ftMax = 0f; int ftN = 0;
+                while (Time.time - t0 < (round == 3 ? 9f : 4.4f))
+                {
+                    // vuruslar: 0.55 s ileri it (kazir), 0.35 s yana kayarak geri cek (kazimaz)
+                    float tt = Time.time - t0;
+                    float ph = tt % 0.9f;
+                    int stroke = Mathf.FloorToInt(tt / 0.9f);
+                    float side = round == 3 ? 1f : (stroke % 2 == 0 ? 1f : -1f) * (round % 2 == 0 ? 1f : -1f);
+                    tools.botScrapeDelta = ph < 0.55f ? new Vector2(0.9f * side, 4.6f) : new Vector2(3.2f * side, -7.0f);
+                    ftSum += Time.unscaledDeltaTime; ftN++; ftMax = Mathf.Max(ftMax, Time.unscaledDeltaTime);
+                    if (stroke != lastStroke && ph > 0.5f) { lastStroke = stroke; Log($"  r{round} stroke {stroke} push-end: {deb.Stats()}"); }
+                    if (round == 0 && Mathf.Abs(tt - 1.3f) < 0.02f) yield return Shot("scrape_a");
+                    if (Mathf.Abs(tt - 3.05f) < 0.02f) yield return Shot($"scrape_b{round}");
+                    yield return null;
+                }
+                tools.botScrapeDelta = Vector2.zero;
+                yield return new WaitForSeconds(0.25f);
+                yield return Shot($"scrape_pile{round}");
+                if (round == 3) { ScreenCapture.CaptureScreenshot(Path.Combine(dir, "hud_full.png")); yield return null; yield return null; }
+                if (round == 0) { ScreenCapture.CaptureScreenshot(Path.Combine(dir, "hud_scrape.png")); yield return null; yield return null; }
+                Log($"round {round} frame: avg {ftSum / Mathf.Max(1, ftN) * 1000f:F1} ms, max {ftMax * 1000f:F1} ms over {ftN} frames");
+                Log($"round {round}: chips={deb.ChipCount} tipLoad={tools.TipLoad:F1}g/{tools.TipCapacity}g money={eco.money}");
+                tools.botHoldScrape = false;              // birak: topla
+                yield return new WaitForSeconds(0.12f);
+                yield return Shot($"scoop{round}_a");
+                yield return new WaitForSeconds(0.22f);
+                yield return Shot($"scoop{round}_b");
+                yield return new WaitForSeconds(0.25f);
+                yield return Shot($"scoop{round}_c");
+                yield return new WaitForSeconds(0.8f);
+                Log($"scoop {round}: grams={tools.LastScoopGrams:F1} money+={tools.LastScoopMoney} total={eco.money} chipsLeft={deb.ChipCount} ores={tools.CoreCount} hint='{tools.Hint}'");
+                yield return Shot($"scoop{round}_after");
+                if (round < 3)
+                {
+                    if (round == 1) { eco.toolTier = 1; tools.RefreshLoadout(); Log("-- spatula --"); }
+                    if (round == 2) { eco.toolTier = 0; tools.RefreshLoadout(); Log("-- kasik, uzun: tasma --"); }
+                    player.LookAt(f0);
+                    yield return new WaitForSeconds(0.3f);
+                    tools.botHoldScrape = true;
+                    yield return new WaitForSeconds(0.3f);
+                }
+            }
+            Log($"scrape end: money {money0} -> {eco.money} chips={deb.ChipCount} ores={tools.CoreCount}/{tools.CoreCapacity}");
         }
 
         if (mode == "shop" || mode == "all")
