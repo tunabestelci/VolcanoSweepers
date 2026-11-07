@@ -163,11 +163,11 @@ public class PlayerTools : MonoBehaviour
                     right.readyEuler = new Vector3(24f, -6f, -6f);
                     break;
                 case Economy.BreakerKind.Drill:       // uc one
-                    right.readyPos = new Vector3(0.26f, -0.26f, 0.50f);
+                    right.readyPos = new Vector3(0.26f, -0.19f, 0.56f);
                     right.readyEuler = new Vector3(3f, -8f, 0f);
                     break;
                 default:                              // kirici: uzun, daha one
-                    right.readyPos = new Vector3(0.30f, -0.28f, 0.66f);
+                    right.readyPos = new Vector3(0.30f, -0.30f, 0.84f);
                     right.readyEuler = new Vector3(4f, -8f, 0f);
                     break;
             }
