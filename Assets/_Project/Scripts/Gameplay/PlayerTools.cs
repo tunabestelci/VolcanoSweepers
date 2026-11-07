@@ -133,7 +133,7 @@ public class PlayerTools : MonoBehaviour
         if (left.busy || right.busy) return;
         if (tool == Tool.Pickaxe && !hasPickaxe) { SetHint("Kazma yerde - E ile al"); return; }
         CurrentTool = tool;
-        scrapeBlend = 0f; scrapePose = false;
+        if (scrapeOn) EndScrape();
         ClearItem(left);
         ClearItem(right);
         if (heldCore != null) { Destroy(heldCore); heldCore = null; }
@@ -237,7 +237,7 @@ public class PlayerTools : MonoBehaviour
         var mouse = Mouse.current;
         if (kb == null || mouse == null || Cursor.lockState != CursorLockMode.Locked)
         {
-            if (CurrentTool == Tool.Pickaxe && IsScraper) UpdateScrape(false);
+            if (scrapeOn) EndScrape();
             Apply(left); Apply(right);
             return;
         }
@@ -279,7 +279,8 @@ public class PlayerTools : MonoBehaviour
         }
         else if (IsScraper)
         {
-            UpdateScrape(mouse.leftButton.isPressed || botHoldScrape);       // kasik/spatula: basili tutarak yuzeyi kazir
+            // kasik/spatula: sol tik basili tutulunca kamera calisma noktasina kilitlenir, fare fircayi surer
+            UpdateScrape(mouse.leftButton.isPressed || botHoldScrape, mouse.delta.ReadValue());
         }
         else
         {
@@ -293,6 +294,9 @@ public class PlayerTools : MonoBehaviour
     // Eller: durus pozu + yurume sallantisi + animasyon ofseti
     void Apply(Hand h)
     {
+        // Kazima kilidinde kamera elin disina cikar: eller gizlenir
+        bool hideHands = player != null && player.LockBlend > 0.05f;
+        if (h.rig.gameObject.activeSelf == hideHands) h.rig.gameObject.SetActive(!hideHands);
         float speed = player != null ? player.Speed01 : 0f;
         h.bobPhase += Time.deltaTime * (4f + speed * 6f);
         float amp = speed;
@@ -526,73 +530,193 @@ public class PlayerTools : MonoBehaviour
         h.busy = false;
     }
 
-    // ---------- Kasik / spatula: basili tutarak yuzeyi kazima ----------
+    // ---------- Kasik / spatula: kameraya kilitli, fareyle surulen kazima (Moon Sweepers tarzi) ----------
 
     public bool botHoldScrape;                                  // test botu icin
+    public Vector2 botScrapeDelta;                              // test botu: fare hareketi (piksel/kare)
     bool IsScraper => Economy.ToolTier < 2;
-    static readonly float[] ScrapeRate = { 2.0f, 2.5f };        // saniyedeki kazima hareketi
-    const float ScrapeTick = 0.1f;                              // kazima darbesi araligi
-    const float ScrapePowerFactor = 0.55f;                     // darbe basina guc (kademenin gucunun orani)
-    float scrapeBlend, scrapePhase, scrapeTickT, scrapeFxT, scrapeSndT;
-    bool scrapePose;
+    const float ScrapeTick = 0.08f;                             // kazima darbesi araligi
+    const float ScrapePowerFactor = 0.5f;                       // darbe basina guc (kademenin gucunun orani)
+    const float ScrapeMouseScale = 0.0032f;                     // fare pikseli -> metre
+    bool scrapeOn;
+    Vector3 scrapeFocus, scrapeCamFocus, scrapeFwd, scrapeRight, scrapeToolDir = Vector3.forward;
+    float scrapeSpeed, scrapeTickT, scrapeFxT, scrapeClinkT, scrapeRetry, scrapeVol;
+    GameObject scrapeTool;
+    Light scrapeLight;
+    AudioSource scrapeAudio;
 
-    void UpdateScrape(bool held)
-    {
-        int tier = Mathf.Clamp(Economy.ToolTier, 0, 1);
-        bool can = held && !right.busy && !ShopKeeper.Open;
-        scrapeBlend = Mathf.MoveTowards(scrapeBlend, can ? 1f : 0f, Time.deltaTime * (can ? 6f : 4f));
-        if (scrapeBlend <= 0.001f && !can)
-        {
-            if (scrapePose) { right.animPos = Vector3.zero; right.animEuler = Vector3.zero; scrapePose = false; }
-            return;
-        }
-        scrapePose = true;
-        if (can) scrapePhase += Time.deltaTime * ScrapeRate[tier];
-        float ph = scrapePhase * Mathf.PI * 2f;
-        float s = Mathf.Sin(ph), c = Mathf.Cos(ph);
-        // Uc yuzeye bastirilir; el sag-sola suruklenir, her yon degisiminde kisa bir bastirma
-        Vector3 pos = new Vector3(-0.05f + s * 0.07f, 0.03f + Mathf.Abs(c) * 0.012f, 0.14f + c * 0.03f);
-        Vector3 eul = new Vector3(20f + c * 4f, -4f - s * 12f, s * 9f);
-        right.animPos = pos * scrapeBlend;
-        right.animEuler = eul * scrapeBlend;
-        if (!can) return;
-
-        scrapeTickT += Time.deltaTime;
-        if (scrapeTickT < ScrapeTick) return;
-        scrapeTickT = 0f;
-        ScrapeHit(s, tier);
-    }
-
-    void ScrapeHit(float sweep, int tier)
+    void UpdateScrape(bool held, Vector2 md)
     {
         var field = LavaField.I;
-        if (field == null) return;
+        if (!scrapeOn)
+        {
+            if (held && field != null && !right.busy && !ShopKeeper.Open && Time.time >= scrapeRetry) BeginScrape(field);
+        }
+        else if (!held || field == null || ShopKeeper.Open || Cursor.lockState != CursorLockMode.Locked)
+        {
+            EndScrape();
+        }
+        if (scrapeOn) StepScrape(field, md);
+        UpdateScrapeAudio();
+    }
+
+    void BeginScrape(LavaField field)
+    {
         var ray = new Ray(cam.transform.position, cam.transform.forward);
-        if (!field.Raycast(ray, reach, out var p)) return;
-        Vector3 right3 = cam.transform.right; right3.y = 0f; right3.Normalize();
-        p += right3 * sweep * 0.12f;                      // kazima hareketiyle birlikte hedef de yana suruklenir
-        p.y = field.HeightAt(p);
-        if (!field.IsLava(p, 1.5f)) { if (Hint == "") SetHint("Burada kazacak bir sey yok", 0.8f); return; }
-        switch (field.Mine(p, Economy.ToolRadius[tier], Economy.ToolPower[tier] * ScrapePowerFactor))
+        if (!field.Raycast(ray, reach, out var p) || !field.IsLava(p, 1.5f))
+        {
+            SetHint("Burada kazacak bir sey yok", 0.8f);
+            scrapeRetry = Time.time + 0.4f;
+            return;
+        }
+        scrapeOn = true;
+        scrapeFocus = p;
+        scrapeCamFocus = p;
+        Vector3 f = player.transform.forward; f.y = 0f;
+        scrapeFwd = f.sqrMagnitude > 1e-4f ? f.normalized : Vector3.forward;
+        scrapeRight = Vector3.Cross(Vector3.up, scrapeFwd);
+        scrapeSpeed = 0f; scrapeTickT = 0f; scrapeToolDir = scrapeFwd;
+        scrapeTool = Instantiate(ToolPrefab());
+        scrapeTool.transform.localScale = Vector3.one * 1.5f;
+        foreach (var c in scrapeTool.GetComponentsInChildren<Collider>()) Destroy(c);
+        var lg = new GameObject("ScrapeLight");
+        scrapeLight = lg.AddComponent<Light>();
+        scrapeLight.type = LightType.Point; scrapeLight.range = 3.2f; scrapeLight.intensity = 1.4f;
+        scrapeLight.color = new Color(1f, 0.82f, 0.55f); scrapeLight.shadows = LightShadows.None;
+        SetHint("Fareyi surerek kaz", 1.6f);
+    }
+
+    void EndScrape()
+    {
+        scrapeOn = false;
+        if (scrapeTool != null) Destroy(scrapeTool);
+        if (scrapeLight != null) Destroy(scrapeLight.gameObject);
+        scrapeTool = null; scrapeLight = null;
+        if (player != null) player.SetCameraLock(false, Vector3.zero, Quaternion.identity);
+        scrapeSpeed = 0f; scrapeVol = 0f;
+        if (scrapeAudio != null) scrapeAudio.Stop();
+    }
+
+    void StepScrape(LavaField field, Vector2 md)
+    {
+        int tier = Mathf.Clamp(Economy.ToolTier, 0, 1);
+        float dt = Mathf.Max(Time.deltaTime, 1e-4f);
+        md += botScrapeDelta;
+        Vector3 prev = scrapeFocus;
+        Vector3 np = prev + (scrapeRight * md.x + scrapeFwd * md.y) * ScrapeMouseScale;
+        // Calisma alani: oyuncuya yakin bir halka, yalnizca lav golunun icinde
+        Vector3 pp = player.transform.position;
+        Vector3 d = new Vector3(np.x - pp.x, 0f, np.z - pp.z);
+        float maxR = reach - 0.3f, minR = 1.0f;
+        if (d.magnitude > maxR) d = d.normalized * maxR;
+        if (d.magnitude < minR) d = (d.sqrMagnitude > 1e-6f ? d.normalized : scrapeFwd) * minR;
+        np = new Vector3(pp.x + d.x, 0f, pp.z + d.z);
+        np.y = field.HeightAt(np);
+        if (!field.IsLava(np, 0.2f)) np = prev;
+        scrapeFocus = np;
+
+        Vector3 mv = np - prev; mv.y = 0f;
+        float spd = mv.magnitude / dt;
+        scrapeSpeed = Mathf.Lerp(scrapeSpeed, spd, 1f - Mathf.Exp(-12f * dt));
+        float sf = Mathf.Clamp01(scrapeSpeed / 1.4f);
+        if (mv.sqrMagnitude > 1e-8f) scrapeToolDir = Vector3.Slerp(scrapeToolDir, mv.normalized, 1f - Mathf.Exp(-6f * dt));
+
+        // Kamera: noktanin biraz gerisinde ve yukarisinda, asagi bakar; yumusakca takip eder
+        scrapeCamFocus = Vector3.Lerp(scrapeCamFocus, scrapeFocus, 1f - Mathf.Exp(-5f * dt));
+        Vector3 camPos = scrapeCamFocus - scrapeFwd * 0.9f + Vector3.up * 1.7f;
+        var terr = Terrain.activeTerrain;
+        if (terr != null) camPos.y = Mathf.Max(camPos.y, terr.SampleHeight(camPos) + terr.transform.position.y + 0.8f);
+        Quaternion camRot = Quaternion.LookRotation((scrapeCamFocus - camPos).normalized, Vector3.up);
+        player.SetCameraLock(true, camPos, camRot);
+
+        // Alet: ucu yuzeye degiyor, hafifce one egik; sururken titrer
+        Vector3 head = (scrapeFwd * 0.6f + scrapeToolDir * 0.4f).normalized;
+        float ang = 28f * Mathf.Deg2Rad;
+        Vector3 tdir = head * Mathf.Cos(ang) + Vector3.down * Mathf.Sin(ang);
+        float bob = Mathf.Sin(Time.time * 38f) * 0.006f * sf;
+        scrapeTool.transform.position = scrapeFocus - tdir * (0.2f * 1.5f) + Vector3.up * (0.015f + bob);
+        scrapeTool.transform.rotation = Quaternion.LookRotation(tdir, Vector3.up);
+        scrapeLight.transform.position = scrapeFocus + Vector3.up * 1.2f;
+
+        // Kazima darbeleri: hiz arttikca guc artar, durunca yavaslar
+        scrapeTickT += dt;
+        if (scrapeTickT >= ScrapeTick)
+        {
+            scrapeTickT = 0f;
+            ScrapeMine(field, tier, sf);
+        }
+        // Ince dokulu tikirdama (ASMR)
+        scrapeClinkT -= dt;
+        if (sf > 0.15f && scrapeClinkT <= 0f)
+        {
+            scrapeClinkT = Random.Range(0.09f, 0.24f) / (0.4f + sf);
+            SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.pickaxeHit : null, scrapeFocus, 0.05f + 0.07f * sf, Random.Range(1.8f, 2.6f), 0.1f);
+        }
+    }
+
+    void ScrapeMine(LavaField field, int tier, float sf)
+    {
+        Vector3 p = scrapeFocus;
+        float factor = ScrapePowerFactor * (0.35f + 1.05f * sf);
+        switch (field.Mine(p, Economy.ToolRadius[tier], Economy.ToolPower[tier] * factor))
         {
             case MineResult.None:
                 if (Hint == "") SetHint(field.DigAt(p) > 0.97f ? "Ana kayaya ulastin" : "Once lavi suyla sogut", 0.8f);
                 break;
             case MineResult.Chipped:
-                scrapeFxT -= ScrapeTick; scrapeSndT -= ScrapeTick;
-                if (scrapeFxT <= 0f) { scrapeFxT = 0.14f; Fx.Chips(p + Vector3.up * 0.04f, 3); }
-                if (scrapeSndT <= 0f)
-                {
-                    scrapeSndT = 0.2f;
-                    SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.pickaxeHit : null, p, 0.35f, 1.35f, 0.12f);
-                }
-                player.Shake(0.004f, 0.06f);
+                scrapeFxT -= ScrapeTick;
+                if (scrapeFxT <= 0f && sf > 0.1f) { scrapeFxT = Mathf.Lerp(0.22f, 0.08f, sf); Fx.Chips(p + Vector3.up * 0.03f, 2); }
                 break;
             case MineResult.Broken:
                 OnObsidianBroken(p);
                 break;
         }
     }
+
+    // Kum/cakil kazima sesi: surekli, yumusak bantli gurultu; fare hizina gore ses ve ton degisir
+    void UpdateScrapeAudio()
+    {
+        if (!scrapeOn) return;
+        if (scrapeAudio == null)
+        {
+            scrapeAudio = gameObject.AddComponent<AudioSource>();
+            scrapeAudio.clip = MakeScrapeClip();
+            scrapeAudio.loop = true; scrapeAudio.playOnAwake = false; scrapeAudio.spatialBlend = 0f; scrapeAudio.volume = 0f;
+        }
+        float sf = Mathf.Clamp01(scrapeSpeed / 1.4f);
+        float target = 0.34f * Mathf.Pow(sf, 0.8f);
+        scrapeVol = Mathf.MoveTowards(scrapeVol, target, Time.deltaTime * 1.6f);
+        scrapeAudio.volume = scrapeVol;
+        scrapeAudio.pitch = 0.88f + 0.5f * sf;
+        if (scrapeVol > 0.004f && !scrapeAudio.isPlaying) scrapeAudio.Play();
+        else if (scrapeVol <= 0.004f && scrapeAudio.isPlaying) scrapeAudio.Pause();
+    }
+
+    static AudioClip MakeScrapeClip()
+    {
+        const int rate = 24000;
+        int n = rate * 2;
+        var data = new float[n];
+        var rng = new System.Random(7);
+        float lp1 = 0f, lp2 = 0f, grain = 0f, gTarget = 0.5f, peak = 0.0001f;
+        int cnt = 0;
+        for (int i = 0; i < n; i++)
+        {
+            float x = (float)(rng.NextDouble() * 2.0 - 1.0);
+            lp1 += 0.55f * (x - lp1);
+            lp2 += 0.10f * (x - lp2);
+            if (--cnt <= 0) { gTarget = (float)rng.NextDouble(); cnt = rng.Next(40, 400); }
+            grain += 0.01f * (gTarget - grain);
+            float s = (lp1 - lp2) * (0.35f + 0.9f * grain);
+            data[i] = s;
+            peak = Mathf.Max(peak, Mathf.Abs(s));
+        }
+        for (int i = 0; i < n; i++) data[i] *= 0.8f / peak;
+        var clip = AudioClip.Create("ScrapeNoise", n, 1, rate, false);
+        clip.SetData(data, 0);
+        return clip;
+    }
+
 
     void OnObsidianBroken(Vector3 p)
     {

@@ -21,9 +21,44 @@ public class PlayerController : MonoBehaviour
     public float Speed01 { get; private set; }
     public float Pitch => pitch;
 
+    // Kazima kilidi: kamera calisma noktasinin ustune kitlenir (kasik/spatula), fare fircayi surer
+    bool lockOn;
+    float lockBlend;
+    Vector3 lockPos;
+    Quaternion lockRot;
+    float baseFov;
+    Vector3 shakeNow;
+    public bool LookLocked => lockOn;
+    public float LockBlend => lockBlend;
+
+    public void SetCameraLock(bool on, Vector3 pos, Quaternion rot)
+    {
+        if (on) { lockPos = pos; lockRot = rot; }
+        lockOn = on;
+    }
+
+    void LateUpdate()
+    {
+        if (cam == null) return;
+        lockBlend = Mathf.MoveTowards(lockBlend, lockOn ? 1f : 0f, Time.deltaTime * 2.6f);
+        if (lockBlend <= 0f)
+        {
+            if (!Mathf.Approximately(cam.fieldOfView, baseFov)) cam.fieldOfView = baseFov;
+            return;
+        }
+        // normal poza donup ustune kilit pozunu karistir
+        cam.transform.localPosition = camBase + shakeNow;
+        cam.transform.localRotation = Quaternion.Euler(pitch, 0f, 0f);
+        float e = lockBlend * lockBlend * (3f - 2f * lockBlend);
+        cam.transform.position = Vector3.Lerp(cam.transform.position, lockPos, e);
+        cam.transform.rotation = Quaternion.Slerp(cam.transform.rotation, lockRot, e);
+        cam.fieldOfView = Mathf.Lerp(baseFov, baseFov * 0.8f, e);
+    }
+
     void Awake()
     {
         cc = GetComponent<CharacterController>();
+        baseFov = cam.fieldOfView;
         camBase = cam.transform.localPosition;
         spawn = transform.position;
         terrain = FindFirstObjectByType<Terrain>();
@@ -110,9 +145,12 @@ public class PlayerController : MonoBehaviour
             return;
         }
 
-        Vector2 look = mouse.delta.ReadValue() * mouseSensitivity;
-        transform.Rotate(0f, look.x, 0f);
-        pitch = Mathf.Clamp(pitch - look.y, -85f, 85f);
+        if (!lockOn)
+        {
+            Vector2 look = mouse.delta.ReadValue() * mouseSensitivity;
+            transform.Rotate(0f, look.x, 0f);
+            pitch = Mathf.Clamp(pitch - look.y, -85f, 85f);
+        }
         cam.transform.localRotation = Quaternion.Euler(pitch, 0f, 0f);
 
         Vector2 input = Vector2.zero;
@@ -121,6 +159,7 @@ public class PlayerController : MonoBehaviour
         if (kb.dKey.isPressed) input.x += 1f;
         if (kb.aKey.isPressed) input.x -= 1f;
         input = Vector2.ClampMagnitude(input, 1f);
+        if (lockOn) input = Vector2.zero;                 // kazarken yerinde dur
 
         float speed = kb.leftShiftKey.isPressed ? sprintSpeed : walkSpeed;
         Vector3 move = (transform.right * input.x + transform.forward * input.y) * speed;
@@ -168,6 +207,7 @@ public class PlayerController : MonoBehaviour
             shakeTime -= Time.deltaTime;
             shake = Random.insideUnitSphere * shakeAmount;
         }
+        shakeNow = shake;
         cam.transform.localPosition = camBase + shake;
     }
 }
