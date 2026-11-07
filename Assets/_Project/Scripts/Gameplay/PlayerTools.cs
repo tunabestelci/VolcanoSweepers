@@ -614,7 +614,7 @@ public class PlayerTools : MonoBehaviour
         scrapeLight = lg.AddComponent<Light>();
         scrapeLight.type = LightType.Point; scrapeLight.range = 3.2f; scrapeLight.intensity = 1.4f;
         scrapeLight.color = new Color(1f, 0.82f, 0.55f); scrapeLight.shadows = LightShadows.None;
-        SetHint("Fareyi surerek kaz", 1.6f);
+        SetHint("Fareyi surerek ust tabakayi al  |  Tekerlek: alet acisi  |  Once kirici ile kir, sonra kaz", 3.2f);
     }
 
     void EndScrape()
@@ -628,11 +628,24 @@ public class PlayerTools : MonoBehaviour
         if (scrapeAudio != null) scrapeAudio.Stop();
     }
 
+    // Fare tekerlegi: alet acisi (yatik = toz/kirinti supurur, dik = ust tabakaya isler)
+    float scrapeTilt = 42f;
+    float dustAcc;
+    const float SkimFloor = 0.55f;                  // kaziyici kabugu asla bunun altina indirmez (delmez): kirmak icin kirici gerekir
+
     void StepScrape(LavaField field, Vector2 md)
     {
         int tier = Mathf.Clamp(Economy.ToolTier, 0, Economy.ToolNames.Length - 1);
         float dt = Mathf.Max(Time.deltaTime, 1e-4f);
         md += botScrapeDelta;
+        var mouse = Mouse.current;
+        if (mouse != null)
+        {
+            float wheel = mouse.scroll.ReadValue().y;
+            if (Mathf.Abs(wheel) > 0.01f) scrapeTilt = Mathf.Clamp(scrapeTilt + Mathf.Sign(wheel) * 6f, 15f, 78f);
+        }
+        float tiltT = Mathf.InverseLerp(20f, 70f, scrapeTilt);       // 0 = yatik, 1 = dik
+
         Vector3 prev = scrapeFocus;
         Vector3 np = prev + (scrapeRight * md.x + scrapeFwd * md.y) * ScrapeMouseScale;
         // Calisma alani: oyuncuya yakin bir halka, yalnizca lav golunun icinde
@@ -650,7 +663,15 @@ public class PlayerTools : MonoBehaviour
         float spd = mv.magnitude / dt;
         scrapeSpeed = Mathf.Lerp(scrapeSpeed, spd, 1f - Mathf.Exp(-12f * dt));
         float sf = Mathf.Clamp01(scrapeSpeed / 1.4f);
-        if (mv.sqrMagnitude > 1e-8f) scrapeToolDir = Vector3.Slerp(scrapeToolDir, mv.normalized, 1f - Mathf.Exp(-6f * dt));
+        // Alet hareket yonune dogru doner; ters/yan cekmede kisa sure etkisiz kalir (gercek kazima gibi: ucu ileri giderken alir)
+        float align = 1f;
+        if (mv.sqrMagnitude > 1e-8f)
+        {
+            Vector3 mdir = mv.normalized;
+            align = Mathf.Clamp01(Vector3.Dot(mdir, scrapeToolDir));
+            scrapeToolDir = Vector3.Slerp(scrapeToolDir, mdir, 1f - Mathf.Exp(-4f * dt));
+        }
+        float drive = sf * (0.3f + 0.7f * align);
 
         // Kamera: noktanin biraz gerisinde ve yukarisinda, asagi bakar; yumusakca takip eder
         scrapeCamFocus = Vector3.Lerp(scrapeCamFocus, scrapeFocus, 1f - Mathf.Exp(-5f * dt));
@@ -660,48 +681,104 @@ public class PlayerTools : MonoBehaviour
         Quaternion camRot = Quaternion.LookRotation((scrapeCamFocus - camPos).normalized, Vector3.up);
         player.SetCameraLock(true, camPos, camRot);
 
-        // Alet: ucu yuzeye degiyor, hafifce one egik; sururken titrer
-        Vector3 head = (scrapeFwd * 0.6f + scrapeToolDir * 0.4f).normalized;
-        float ang = 28f * Mathf.Deg2Rad;
+        // Alet: ucu yuzeye degiyor; aci fare tekerlegiyle degisir; sururken hafif titrer
+        Vector3 head = scrapeToolDir.sqrMagnitude > 1e-6f ? scrapeToolDir.normalized : scrapeFwd;
+        float ang = scrapeTilt * Mathf.Deg2Rad;
         Vector3 tdir = head * Mathf.Cos(ang) + Vector3.down * Mathf.Sin(ang);
-        float bob = Mathf.Sin(Time.time * 38f) * 0.006f * sf;
+        float bob = Mathf.Sin(Time.time * 38f) * 0.006f * drive;
         scrapeTool.transform.position = scrapeFocus - tdir * (0.2f * 1.5f) + Vector3.up * (0.015f + bob);
         scrapeTool.transform.rotation = Quaternion.LookRotation(tdir, Vector3.up);
         scrapeLight.transform.position = scrapeFocus + Vector3.up * 1.2f;
 
-        // Kazima darbeleri: hiz arttikca guc artar, durunca yavaslar
+        // Kirintilari suprur: kirici ile kirilan parcalar firca alanina girince tek tek kaplara toplanir
+        SweepRubble(tier, tiltT, drive, dt);
+
+        // Ust tabakayi alir (ince ince): hiz ve aciya bagli
         scrapeTickT += dt;
         if (scrapeTickT >= ScrapeTick)
         {
             scrapeTickT = 0f;
-            ScrapeMine(field, tier, sf);
+            ScrapeWork(field, tier, drive, tiltT);
         }
         // Ince dokulu tikirdama (ASMR)
         scrapeClinkT -= dt;
-        if (sf > 0.15f && scrapeClinkT <= 0f)
+        if (drive > 0.15f && scrapeClinkT <= 0f)
         {
-            scrapeClinkT = Random.Range(0.09f, 0.24f) / (0.4f + sf);
-            SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.pickaxeHit : null, scrapeFocus, 0.05f + 0.07f * sf, Random.Range(1.8f, 2.6f), 0.1f);
+            scrapeClinkT = Random.Range(0.09f, 0.24f) / (0.4f + drive);
+            SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.pickaxeHit : null, scrapeFocus, 0.04f + 0.06f * drive, Random.Range(1.8f, 2.6f), 0.1f);
         }
     }
 
-    void ScrapeMine(LavaField field, int tier, float sf)
+    // Kaziyici yalnizca ust tabakayi alir; delmez. Alinan toz kucuk bir gelir olur.
+    void ScrapeWork(LavaField field, int tier, float drive, float tiltT)
     {
         Vector3 p = scrapeFocus;
-        float factor = ScrapePowerFactor * (0.35f + 1.05f * sf);
-        switch (field.Mine(p, Economy.ToolRadius[tier], Economy.ToolPower[tier] * factor))
+        float c = field.CrustAt(p);
+        if (c < 0.3f) { if (Hint == "") SetHint("Burada kabuk yok - once lavi suyla sogut", 1.2f); return; }
+        float bite = Mathf.Lerp(0.35f, 1.25f, tiltT);                       // dik tutunca daha derin alir
+        float rad = Economy.ToolRadius[tier] * Mathf.Lerp(1f, 0.65f, tiltT); // dik tutunca iz daralir
+        float amount = Economy.ToolPower[tier] * 0.75f * (0.2f + 1.1f * drive) * bite;
+        float removed = field.Skim(p, rad, amount, SkimFloor);
+        if (removed > 0.0004f)
         {
-            case MineResult.None:
-                if (Hint == "") SetHint(field.DigAt(p) > 0.97f ? "Ana kayaya ulastin" : "Once lavi suyla sogut", 0.8f);
-                break;
-            case MineResult.Chipped:
-                scrapeFxT -= ScrapeTick;
-                if (scrapeFxT <= 0f && sf > 0.1f) { scrapeFxT = Mathf.Lerp(0.22f, 0.08f, sf); Fx.Chips(p + Vector3.up * 0.03f, 2); }
-                break;
-            case MineResult.Broken:
-                OnObsidianBroken(p);
-                break;
+            dustAcc += removed * rad * rad;
+            while (dustAcc >= 0.05f)
+            {
+                dustAcc -= 0.05f;
+                if (Economy.I != null) Economy.I.Earn(1);
+            }
+            scrapeFxT -= ScrapeTick;
+            if (scrapeFxT <= 0f && drive > 0.1f) { scrapeFxT = Mathf.Lerp(0.2f, 0.08f, drive); Fx.Chips(p + Vector3.up * 0.03f, 2); }
         }
+        else if (c <= SkimFloor + 0.02f && Hint == "")
+        {
+            SetHint("Ust tabaka alindi - derine inmek icin kirici ile kir", 1.5f);
+        }
+    }
+
+    // Yerdeki kirintilari firca alaninda surukleyip kaba toplar (kap doluysa birakir)
+    void SweepRubble(int tier, float tiltT, float drive, float dt)
+    {
+        if (drive < 0.05f) return;
+        float sweepR = Economy.ToolRadius[tier] * Mathf.Lerp(1.7f, 1.0f, tiltT) + 0.12f;     // yatik tutunca genis suprur
+        for (int i = LithicCoreItem.All.Count - 1; i >= 0; i--)
+        {
+            var c = LithicCoreItem.All[i];
+            if (c == null) continue;
+            Vector3 pos = c.transform.position;
+            Vector3 flat = new Vector3(scrapeFocus.x - pos.x, 0f, scrapeFocus.z - pos.z);
+            float dist = flat.magnitude;
+            if (dist > sweepR) continue;
+            if (dist < 0.16f)
+            {
+                if (!CollectCore(c)) { if (Hint == "") SetHint("Kaplar dolu - cevherleri depoya at", 1.2f); }
+                continue;
+            }
+            c.transform.position = pos + flat.normalized * Mathf.Min(dist, (1.2f + 2.4f * drive) * dt);
+        }
+    }
+
+    // Kirinti/cevher parcasini bir kaba koyar (once yarim dolu kap, sonra bos kap); sigmazsa false
+    bool CollectCore(LithicCoreItem core)
+    {
+        Hand target = null;
+        foreach (var h in new[] { left, right })
+            if (h.has && h.ores > 0 && h.ores < OreCap) { target = h; break; }
+        if (target == null)
+            foreach (var h in new[] { left, right })
+                if (h.has && h.ores == 0 && h.fill < 0.05f) { target = h; break; }
+        if (target == null) return false;
+        Destroy(core.gameObject);
+        target.ores++;
+        if (target.item != null)
+        {
+            var old = target.item.transform.Find("Ores");
+            if (old != null) Destroy(old.gameObject);
+            BuildOreViews(target);
+        }
+        SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.pickaxeHit : null, scrapeFocus, 0.12f, Random.Range(2.0f, 2.8f), 0.1f);
+        SetHint($"Toplandi ({CoreCount}/{CoreCapacity})", 0.8f);
+        return true;
     }
 
     // Kum/cakil kazima sesi: surekli, yumusak bantli gurultu; fare hizina gore ses ve ton degisir
@@ -953,10 +1030,12 @@ public class PlayerTools : MonoBehaviour
     void SpawnCores(Vector3 p)
     {
         if (coreItemPrefab == null) return;
-        int n = Random.Range(1, 3) + (CurrentTool == Tool.Breaker ? Economy.BreakerCores(Economy.BreakerTierNow) - 1 : 0);
+        // kirici obsidyeni parcalara boler: kucuk kirintilar etrafa saçilir, sonra kaziyiciyla toplanir
+        int n = Random.Range(2, 5) + (CurrentTool == Tool.Breaker ? Economy.BreakerCores(Economy.BreakerTierNow) - 1 : 0);
         for (int i = 0; i < n; i++)
         {
             var go = Instantiate(coreItemPrefab, p + Vector3.up * 0.3f, Random.rotation);
+            go.transform.localScale *= Random.Range(0.45f, 0.7f);
             var item = go.GetComponent<LithicCoreItem>();
             if (item != null)
                 item.Launch(new Vector3(Random.Range(-1.2f, 1.2f), Random.Range(2f, 3.2f), Random.Range(-1.2f, 1.2f)));

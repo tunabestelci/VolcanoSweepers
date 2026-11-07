@@ -17,8 +17,8 @@ public class Economy : MonoBehaviour
     public static readonly string[] ToolNames = { "Kasik", "Spatula" };
     public static readonly string[] ToolInfo =
     {
-        "Yavas ve kucuk: fareyi surerek obsidyeni kazir",
-        "Daha genis uc, daha hizli kazir",
+        "Fareyi surerek ust tabakayi ince ince alir, kirintilari toplar (delmez)",
+        "Daha genis uc: daha genis alan, daha hizli",
     };
     public static readonly float[] ToolRadius = { 0.28f, 0.42f };
     public static readonly float[] ToolPower = { 0.12f, 0.22f };

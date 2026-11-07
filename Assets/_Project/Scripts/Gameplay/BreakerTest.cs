@@ -125,6 +125,49 @@ public class BreakerTest : MonoBehaviour
             }
         }
 
+        if (mode == "scrape")
+        {
+            eco.toolTier = 0; eco.breakerTier = 0;
+            tools.DoEquip(Tool.Scraper);
+            var fFocus = typeof(PlayerTools).GetField("scrapeFocus", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Vector3 f0 = Vector3.zero;
+            for (int attempt = 0; attempt < 8; attempt++)
+            {
+                tools.botHoldScrape = false;
+                yield return new WaitForSeconds(0.5f);
+                Vector3 p = Stage();
+                yield return new WaitForSeconds(0.6f);
+                player.LookAt(p);
+                field.AddCrust(p, 2.0f, 1f);
+                yield return new WaitForSeconds(0.2f);
+                tools.botHoldScrape = true;
+                yield return new WaitForSeconds(0.6f);
+                f0 = (Vector3)fFocus.GetValue(tools);
+                if (f0.sqrMagnitude > 1f) break;
+            }
+            Log($"scrape focus attempt result: {f0}");
+            // kirintilar: kirici ile kirilmis gibi, firca alaninin yakinina parca sacilir
+            var sc = typeof(PlayerTools).GetMethod("SpawnCores", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            for (int k = 0; k < 3; k++) sc.Invoke(tools, new object[] { f0 + new Vector3(0.25f * (k - 1), 0f, 0.3f) });
+            yield return new WaitForSeconds(0.8f);
+            int rubble0 = LithicCoreItem.All.Count;
+            float RingMean(Vector3 c) { float sum = 0f; int cn = 0; for (int a2 = 0; a2 < 12; a2++) { float ang = a2 * 0.5236f; for (float rr = 0.1f; rr <= 0.5f; rr += 0.2f) { sum += field.CrustAt(c + new Vector3(Mathf.Cos(ang) * rr, 0f, Mathf.Sin(ang) * rr)); cn++; } } return sum / cn; }
+            float crust0 = RingMean(f0); int money0 = eco.money;
+            Log($"scrape start: focus={f0} ringCrust={crust0:F2} rubble={rubble0} money={money0} vesselOres={tools.CoreCount}");
+            float t0 = Time.time; bool shot = false;
+            while (Time.time - t0 < 7f)
+            {
+                float ph = (Time.time - t0) * 3.2f;
+                tools.botScrapeDelta = new Vector2(Mathf.Cos(ph) * 3.2f, Mathf.Sin(ph * 0.5f) * 1.2f);
+                if (!shot && Time.time - t0 > 3.5f) { shot = true; yield return Shot("scrape_mid"); }
+                yield return null;
+            }
+            tools.botScrapeDelta = Vector2.zero; tools.botHoldScrape = false;
+            Log($"scrape end: ringCrust={RingMean(f0):F2} (taban 0.55, delmemeli) rubble={LithicCoreItem.All.Count} money={eco.money} (+{eco.money - money0}) vesselOres={tools.CoreCount}/{tools.CoreCapacity} hint='{tools.Hint}'");
+            yield return new WaitForSeconds(1.0f);
+            yield return Shot("scrape_after");
+        }
+
         if (mode == "shop" || mode == "all")
         {
             eco.Earn(2000);

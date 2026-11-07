@@ -468,6 +468,23 @@ public class LavaField : MonoBehaviour
         return MineResult.Broken;
     }
 
+    // Kasik/spatula: yalnizca ust tabakayi ince ince alir; kabuk 'floor' altina inmez (asla delmez, lav acilmaz).
+    // Dondurulen: merkezdeki agirlikli ortalama alinan miktar.
+    public float Skim(Vector3 world, float radius, float amount, float floor = 0.55f)
+    {
+        float removed = 0f, wsum = 0f;
+        Paint(world, radius, (i, w) =>
+        {
+            wsum += w;
+            float c = crust[i];
+            if (c <= floor) return;
+            float dlt = Mathf.Min(amount * w, c - floor);
+            crust[i] = c - dlt;
+            removed += dlt;
+        });
+        return wsum > 0f ? removed / wsum : 0f;
+    }
+
     // ---------- Durum ----------
 
     // Golun bosalan hacim orani (0..1)
