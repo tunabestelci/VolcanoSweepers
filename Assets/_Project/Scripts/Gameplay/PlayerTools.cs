@@ -2,7 +2,7 @@ using System.Collections;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-public enum Tool { Buckets, Pickaxe }
+public enum Tool { Buckets, Scraper, Breaker }
 
 // Kova / kazma kullanimi ve elleri hareket ettiren kodla yazilmis animasyonlar
 public class PlayerTools : MonoBehaviour
@@ -24,8 +24,6 @@ public class PlayerTools : MonoBehaviour
         public bool has = true;     // bu elin kovasi envanterde mi (yere birakilabilir)
     }
 
-    bool hasPickaxe = true;
-
 
     public PlayerController player;
     public Camera cam;
@@ -34,14 +32,16 @@ public class PlayerTools : MonoBehaviour
     public GameObject bucketPrefab;               // kuyu kovasi ve eski ref (kullanilmaz)
     public GameObject pickaxePrefab;
     public GameObject[] vesselPrefabs;            // bardak, surahi, kova
-    public GameObject[] toolPrefabs;              // kasik, spatula, kazma
+    public GameObject[] toolPrefabs;              // kasik, spatula
+    public GameObject[] breakerPrefabs;           // [1..20] kiricilar (0 bos)
 
     GameObject VesselPrefab() { int t = Mathf.Clamp(Economy.VesselTier, 0, vesselPrefabs.Length - 1); return vesselPrefabs != null && vesselPrefabs.Length > 0 ? vesselPrefabs[t] : bucketPrefab; }
     GameObject ToolPrefab() { int t = Mathf.Clamp(Economy.ToolTier, 0, toolPrefabs.Length - 1); return toolPrefabs != null && toolPrefabs.Length > 0 ? toolPrefabs[t] : pickaxePrefab; }
     float Cap => Economy.VesselCapacity[Mathf.Clamp(Economy.VesselTier, 0, 2)];
     public int OreCap => Economy.VesselOres[Mathf.Clamp(Economy.VesselTier, 0, 2)];
     public string VesselName => Economy.VesselNames[Mathf.Clamp(Economy.VesselTier, 0, 2)];
-    public string ToolName => Economy.ToolNames[Mathf.Clamp(Economy.ToolTier, 0, 2)];
+    public string ToolName => Economy.ToolNames[Mathf.Clamp(Economy.ToolTier, 0, Economy.ToolNames.Length - 1)];
+    public string BreakerName => Economy.BreakerNames[Mathf.Clamp(Economy.BreakerTierNow, 0, Economy.BreakerCount)];
     public GameObject coreVisualPrefab;
     public float reach = 6f;
     public float pickupRange = 3.5f;
@@ -97,7 +97,7 @@ public class PlayerTools : MonoBehaviour
     // Test botu ve dis cagrilar icin
     public bool Busy => left.busy || right.busy;
     public void DoBucket(bool leftHand) { UseBucket(leftHand ? left : right); }
-    public void DoSwing() { if (!right.busy) StartCoroutine(SwingPickaxe()); }
+    public void DoSwing() { if (!right.busy && Economy.BreakerTierNow > 0) StartCoroutine(SwingHammer(Economy.BreakerTierNow)); }
     public bool BotPourBusy => left.busy || right.busy;
     public void DoPickup() { TryPickup(); }
     public void DoPull() { foreach (var w in WaterWell.All) if (w != null && !w.Busy) w.auto = true; }
@@ -131,8 +131,13 @@ public class PlayerTools : MonoBehaviour
     void Equip(Tool tool)
     {
         if (left.busy || right.busy) return;
-        if (tool == Tool.Pickaxe && !hasPickaxe) { SetHint("Kazma yerde - E ile al"); return; }
+        if (tool == Tool.Breaker && (Economy.BreakerTierNow <= 0 || BreakerPrefab(Economy.BreakerTierNow) == null))
+        {
+            SetHint(Economy.BreakerTierNow <= 0 ? "Kiricin yok - Lav Adam'dan satin al" : "Kirici modeli bulunamadi");
+            return;
+        }
         CurrentTool = tool;
+        StopDrill();
         if (scrapeOn) EndScrape();
         ClearItem(left);
         ClearItem(right);
@@ -144,6 +149,31 @@ public class PlayerTools : MonoBehaviour
             if (right.has) SpawnBucket(right);
             SetDefaultPoses(left, -1f);
             SetDefaultPoses(right, 1f);
+        }
+        else if (tool == Tool.Breaker)
+        {
+            int bt = Economy.BreakerTierNow;
+            right.item = Instantiate(BreakerPrefab(bt), right.root);
+            right.item.transform.localPosition = Vector3.zero;
+            right.item.transform.localRotation = Quaternion.identity;
+            switch (Economy.KindOf(bt))
+            {
+                case Economy.BreakerKind.Hammer:      // sap yukari, bas one egik
+                    right.readyPos = new Vector3(0.30f, -0.34f, 0.52f);
+                    right.readyEuler = new Vector3(24f, -6f, -6f);
+                    break;
+                case Economy.BreakerKind.Drill:       // uc one
+                    right.readyPos = new Vector3(0.26f, -0.26f, 0.50f);
+                    right.readyEuler = new Vector3(3f, -8f, 0f);
+                    break;
+                default:                              // kirici: uzun, daha one
+                    right.readyPos = new Vector3(0.30f, -0.28f, 0.66f);
+                    right.readyEuler = new Vector3(4f, -8f, 0f);
+                    break;
+            }
+            right.carryPos = right.readyPos;
+            right.carryEuler = right.readyEuler;
+            RefreshHeldCore();
         }
         else
         {
@@ -238,6 +268,7 @@ public class PlayerTools : MonoBehaviour
         if (kb == null || mouse == null || Cursor.lockState != CursorLockMode.Locked)
         {
             if (scrapeOn) EndScrape();
+            if (CurrentTool == Tool.Breaker) UpdateBreaker(false);
             Apply(left); Apply(right);
             return;
         }
@@ -251,8 +282,8 @@ public class PlayerTools : MonoBehaviour
         {
             if (CurrentTool == Tool.Buckets) DropBucket(right); else Equip(Tool.Buckets);
         }
-        if (kb.digit3Key.wasPressedThisFrame) Equip(Tool.Pickaxe);
-        if (kb.qKey.wasPressedThisFrame && CurrentTool == Tool.Pickaxe) DropPickaxe();
+        if (kb.digit3Key.wasPressedThisFrame) Equip(Tool.Scraper);
+        if (kb.digit4Key.wasPressedThisFrame) Equip(Tool.Breaker);
         if (kb.eKey.wasPressedThisFrame) TryPickup();
 
         // Kuyu: E basili tutarak kova indirilir, doluyken E ile cekilir
@@ -277,14 +308,14 @@ public class PlayerTools : MonoBehaviour
             if (mouse.leftButton.wasPressedThisFrame && right.has) UseBucket(right);
             if (mouse.rightButton.wasPressedThisFrame && left.has) UseBucket(left);
         }
-        else if (IsScraper)
+        else if (CurrentTool == Tool.Scraper)
         {
             // kasik/spatula: sol tik basili tutulunca kamera calisma noktasina kilitlenir, fare fircayi surer
             UpdateScrape(mouse.leftButton.isPressed || botHoldScrape, mouse.delta.ReadValue());
         }
         else
         {
-            if (mouse.leftButton.isPressed && !right.busy && Time.time >= nextSwing) StartCoroutine(SwingPickaxe());
+            UpdateBreaker(mouse.leftButton.isPressed || botHoldBreak);
         }
 
         Apply(left);
@@ -312,7 +343,7 @@ public class PlayerTools : MonoBehaviour
             0f,
             Mathf.Sin(h.bobPhase * 0.5f + 1f) * 4f * amp * heavy * (CurrentTool == Tool.Buckets ? h.fill + 0.2f : 0.3f));
         bool wantReady = h.busy
-            || (CurrentTool == Tool.Pickaxe && (h == right || heldCore != null));
+            || (CurrentTool != Tool.Buckets && (h == right || heldCore != null));
         h.ready = Mathf.MoveTowards(h.ready, wantReady ? 1f : 0f, Time.deltaTime * 4f);
         float e = h.ready * h.ready * (3f - 2f * h.ready);
         h.rig.localRotation = Quaternion.Euler((player != null ? player.Pitch : 0f) * e, 0f, 0f);
@@ -534,7 +565,7 @@ public class PlayerTools : MonoBehaviour
 
     public bool botHoldScrape;                                  // test botu icin
     public Vector2 botScrapeDelta;                              // test botu: fare hareketi (piksel/kare)
-    bool IsScraper => Economy.ToolTier < 2;
+    bool IsScraper => CurrentTool == Tool.Scraper;
     const float ScrapeTick = 0.08f;                             // kazima darbesi araligi
     const float ScrapePowerFactor = 0.5f;                       // darbe basina guc (kademenin gucunun orani)
     const float ScrapeMouseScale = 0.0032f;                     // fare pikseli -> metre
@@ -599,7 +630,7 @@ public class PlayerTools : MonoBehaviour
 
     void StepScrape(LavaField field, Vector2 md)
     {
-        int tier = Mathf.Clamp(Economy.ToolTier, 0, 1);
+        int tier = Mathf.Clamp(Economy.ToolTier, 0, Economy.ToolNames.Length - 1);
         float dt = Mathf.Max(Time.deltaTime, 1e-4f);
         md += botScrapeDelta;
         Vector3 prev = scrapeFocus;
@@ -727,23 +758,164 @@ public class PlayerTools : MonoBehaviour
         SpawnCores(p);
         if (Economy.I != null)
         {
-            int earn = Economy.ToolBreakMoney[Mathf.Clamp(Economy.ToolTier, 0, 2)];
+            int earn = CurrentTool == Tool.Breaker ? Economy.BreakerMoney(Economy.BreakerTierNow)
+                     : Economy.ToolBreakMoney[Mathf.Clamp(Economy.ToolTier, 0, Economy.ToolNames.Length - 1)];
             Economy.I.Earn(earn);
             SetHint($"+{earn} para", 0.9f);
         }
     }
 
-    // ---------- Kazma ----------
+    // ---------- Kiricilar: cekic/balyoz (vur), matkap/kirici (sol tik basili tut) ----------
 
-    IEnumerator SwingPickaxe()
+    public bool botHoldBreak;                                   // test botu icin
+    GameObject BreakerPrefab(int t) { return breakerPrefabs != null && t >= 0 && t < breakerPrefabs.Length ? breakerPrefabs[t] : null; }
+
+    float drillTickT, drillVibe, drillVol, drillFxT;
+    AudioSource drillAudio;
+    AudioClip drillClip, jackClip;
+
+    void UpdateBreaker(bool held)
+    {
+        int t = Economy.BreakerTierNow;
+        if (t <= 0 || CurrentTool != Tool.Breaker) { StopDrill(); return; }
+        var kind = Economy.KindOf(t);
+        if (kind == Economy.BreakerKind.Hammer)
+        {
+            if (held && !right.busy && Time.time >= nextSwing) StartCoroutine(SwingHammer(t));
+            return;
+        }
+        UpdateDrill(held && !right.busy && !ShopKeeper.Open, t, kind);
+    }
+
+    void StopDrill()
+    {
+        drillVibe = 0f; drillVol = 0f; drillTickT = 0f;
+        if (drillAudio != null) drillAudio.Stop();
+    }
+
+    // Matkap / kirici: tus basili oldukca nisan noktasini surekli deler; el titrer, kamera sarsilir
+    void UpdateDrill(bool held, int t, Economy.BreakerKind kind)
+    {
+        float dt = Time.deltaTime;
+        bool jack = kind == Economy.BreakerKind.Jackhammer;
+        drillVibe = Mathf.MoveTowards(drillVibe, held ? 1f : 0f, dt * (held ? 6f : 8f));
+        if (right.item != null && !right.busy)
+        {
+            float amp = (jack ? 0.014f : 0.007f) * drillVibe;
+            float ph = Time.time;
+            right.animPos = new Vector3(Mathf.Sin(ph * 83f), Mathf.Sin(ph * 97f + 1f), Mathf.Sin(ph * 71f + 2f) * 0.6f) * amp
+                            + new Vector3(0f, 0f, 0.035f * drillVibe);
+            right.animEuler = new Vector3(Mathf.Sin(ph * 67f) * (jack ? 1.6f : 0.8f), Mathf.Sin(ph * 59f + 1f) * (jack ? 1.2f : 0.6f), 0f) * drillVibe;
+        }
+        if (held)
+        {
+            float interval = Economy.BreakerTempo(t);
+            drillTickT += dt;
+            int guard = 0;
+            while (drillTickT >= interval && guard++ < 4) { drillTickT -= interval; DrillHit(t); }
+            player.Shake(jack ? 0.012f : 0.005f, 0.06f);
+        }
+        else drillTickT = 0f;
+        UpdateDrillAudio(held, t, jack);
+    }
+
+    void DrillHit(int t)
+    {
+        var field = LavaField.I;
+        if (field == null) return;
+        var ray = new Ray(cam.transform.position, cam.transform.forward);
+        if (!field.Raycast(ray, reach, out var p)) return;
+        Vector2 j = Random.insideUnitCircle * (Economy.BreakerRadius(t) * 0.25f);
+        p += new Vector3(j.x, 0f, j.y);
+        p.y = field.HeightAt(p);
+        if (!field.IsLava(p, 1.0f)) { if (Hint == "") SetHint("Burada kazacak bir sey yok", 0.8f); return; }
+        switch (field.Mine(p, Economy.BreakerRadius(t), Economy.BreakerPower(t)))
+        {
+            case MineResult.None:
+                if (Hint == "") SetHint(field.DigAt(p) > 0.97f ? "Ana kayaya ulastin" : "Once lavi suyla sogut", 0.8f);
+                break;
+            case MineResult.Chipped:
+                drillFxT -= Economy.BreakerTempo(t);
+                if (drillFxT <= 0f) { drillFxT = 0.09f; Fx.Chips(p + Vector3.up * 0.04f, 3); }
+                break;
+            case MineResult.Broken:
+                OnObsidianBroken(p);
+                break;
+        }
+    }
+
+    void UpdateDrillAudio(bool held, int t, bool jack)
+    {
+        if (drillAudio == null)
+        {
+            drillAudio = gameObject.AddComponent<AudioSource>();
+            drillAudio.loop = true; drillAudio.playOnAwake = false; drillAudio.spatialBlend = 0f; drillAudio.volume = 0f;
+        }
+        if (drillClip == null) drillClip = MakeDrillClip();
+        if (jackClip == null) jackClip = MakeJackClip();
+        var clip = jack ? jackClip : drillClip;
+        if (drillAudio.clip != clip) { drillAudio.Stop(); drillAudio.clip = clip; }
+        drillVol = Mathf.MoveTowards(drillVol, held ? (jack ? 0.55f : 0.36f) : 0f, Time.deltaTime * 3.5f);
+        drillAudio.volume = drillVol;
+        drillAudio.pitch = jack ? 1f : Mathf.Clamp(0.75f + (t - 9) * 0.05f, 0.7f, 1.2f);
+        if (drillVol > 0.004f && !drillAudio.isPlaying) drillAudio.Play();
+        else if (drillVol <= 0.004f && drillAudio.isPlaying) drillAudio.Pause();
+    }
+
+    // Matkap vizildisi: 150 Hz testere dalgasi + hafif gurultu, 30 Hz titresim (1 sn'de tam dongu = dikissiz)
+    static AudioClip MakeDrillClip()
+    {
+        const int rate = 22050;
+        var data = new float[rate];
+        var rng = new System.Random(11);
+        float peak = 0.0001f;
+        for (int i = 0; i < rate; i++)
+        {
+            float t = i / (float)rate;
+            float saw = 0f;
+            for (int h = 1; h <= 8; h++) saw += Mathf.Sin(2f * Mathf.PI * 150f * h * t) / h;
+            float am = 0.72f + 0.28f * Mathf.Sin(2f * Mathf.PI * 30f * t);
+            float s = saw * 0.4f * am + ((float)rng.NextDouble() - 0.5f) * 0.35f;
+            data[i] = s; peak = Mathf.Max(peak, Mathf.Abs(s));
+        }
+        for (int i = 0; i < rate; i++) data[i] *= 0.8f / peak;
+        var clip = AudioClip.Create("DrillLoop", rate, 1, rate, false);
+        clip.SetData(data, 0);
+        return clip;
+    }
+
+    // Kirici: saniyede 20 agir darbe (gurultu patlamasi + 60 Hz gumbur)
+    static AudioClip MakeJackClip()
+    {
+        const int rate = 22050;
+        var data = new float[rate];
+        var rng = new System.Random(5);
+        float peak = 0.0001f;
+        for (int i = 0; i < rate; i++)
+        {
+            float t = i / (float)rate;
+            float p = (t * 20f) % 1f;
+            float env = Mathf.Exp(-p * 16f);
+            float s = (Mathf.Sin(2f * Mathf.PI * 60f * t) * 0.9f + ((float)rng.NextDouble() * 2f - 1f) * 0.7f) * env;
+            data[i] = s; peak = Mathf.Max(peak, Mathf.Abs(s));
+        }
+        for (int i = 0; i < rate; i++) data[i] *= 0.85f / peak;
+        var clip = AudioClip.Create("JackLoop", rate, 1, rate, false);
+        clip.SetData(data, 0);
+        return clip;
+    }
+
+    // Cekic / balyoz: kaldirip indirir; agir olan daha yavas ve daha sert vurur
+    IEnumerator SwingHammer(int t)
     {
         right.busy = true;
-        Vector3 windPos = new Vector3(0.05f, 0.18f, -0.15f);
-        Vector3 windEul = new Vector3(-55f, 0f, -10f);
+        float sw = Economy.BreakerTempo(t);
+        float heavy = Mathf.Clamp01((t - 1) / 7f);
+        Vector3 windPos = new Vector3(0.05f, 0.18f + 0.05f * heavy, -0.15f);
+        Vector3 windEul = new Vector3(-55f - 15f * heavy, 0f, -10f);
         Vector3 hitPos = new Vector3(-0.05f, -0.12f, 0.28f);
-        Vector3 hitEul = new Vector3(40f, 0f, 0f);
+        Vector3 hitEul = new Vector3(40f + 8f * heavy, 0f, 0f);
 
-        float sw = Economy.ToolSwingSpeed[Mathf.Clamp(Economy.ToolTier, 0, 2)];
         yield return Tween(right, Vector3.zero, windPos, Vector3.zero, windEul, 0.22f * sw);
         yield return Tween(right, windPos, hitPos, windEul, hitEul, 0.11f * sw);
 
@@ -755,15 +927,15 @@ public class PlayerTools : MonoBehaviour
             if (!field.IsLava(p, 1.5f)) { SetHint("Burada kazacak bir sey yok"); }
             else
             {
-                switch (field.Mine(p, Economy.ToolRadius[Mathf.Clamp(Economy.ToolTier, 0, 2)], Economy.ToolPower[Mathf.Clamp(Economy.ToolTier, 0, 2)]))
+                switch (field.Mine(p, Economy.BreakerRadius(t), Economy.BreakerPower(t)))
                 {
                     case MineResult.None:
                         SetHint(field.DigAt(p) > 0.97f ? "Ana kayaya ulastin" : "Once lavi suyla sogut");
                         break;
                     case MineResult.Chipped:
                         Fx.Chips(p + Vector3.up * 0.05f);
-                        SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.pickaxeHit : null, p, 1f);
-                        player.Shake(0.02f, 0.1f);
+                        SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.pickaxeHit : null, p, 1f, 1f - 0.12f * heavy);
+                        player.Shake(0.02f + 0.02f * heavy, 0.1f);
                         break;
                     case MineResult.Broken:
                         OnObsidianBroken(p);
@@ -781,7 +953,7 @@ public class PlayerTools : MonoBehaviour
     void SpawnCores(Vector3 p)
     {
         if (coreItemPrefab == null) return;
-        int n = Random.Range(1, 3);
+        int n = Random.Range(1, 3) + (CurrentTool == Tool.Breaker ? Economy.BreakerCores(Economy.BreakerTierNow) - 1 : 0);
         for (int i = 0; i < n; i++)
         {
             var go = Instantiate(coreItemPrefab, p + Vector3.up * 0.3f, Random.rotation);
@@ -889,28 +1061,8 @@ public class PlayerTools : MonoBehaviour
         SetHint(h == left ? "Sol kova birakildi (E: al)" : "Sag kova birakildi (E: al)");
     }
 
-    void DropPickaxe()
-    {
-        if (!hasPickaxe || right.busy || right.item == null) return;
-        var item = right.item;
-        right.item = null;
-        hasPickaxe = false;
-        right.animPos = Vector3.zero; right.animEuler = Vector3.zero;
-        DroppedItem.Create(item, DroppedItem.Kind.Pickaxe, DropPoint(), cam.transform.forward * 1.5f + Vector3.up * 0.8f, 0f, 0);
-        SetHint("Kazma birakildi (E: al)");
-        Equip(Tool.Buckets);
-    }
-
     void PickUpDropped(DroppedItem d)
     {
-        if (d.kind == DroppedItem.Kind.Pickaxe)
-        {
-            if (hasPickaxe) { SetHint("Zaten kazman var"); return; }
-            hasPickaxe = true;
-            Destroy(d.gameObject);
-            SetHint("Kazma alindi (3: kazmayi ele al)");
-            return;
-        }
         // Kovalar sirayla alinir: once sol, sonra sag
         Hand h = !left.has ? left : (!right.has ? right : null);
         if (h == null) { SetHint("Iki kovan da elinde"); return; }

@@ -130,7 +130,7 @@ public class PlaytestBot : MonoBehaviour
         yield return Shot("05_crust");
 
         // Kazma
-        tools.DoEquip(Tool.Pickaxe);
+        tools.DoEquip(Tool.Scraper);
         yield return new WaitForSeconds(0.4f);
         player.LookAt(target);
         for (int i = 0; i < 6; i++)

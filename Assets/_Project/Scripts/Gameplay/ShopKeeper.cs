@@ -102,26 +102,33 @@ public class ShopKeeper : MonoBehaviour
         GUILayout.BeginArea(new Rect(box.x + pw * 0.04f, box.y + ph * 0.03f, pw * 0.92f, ph * 0.94f));
         GUILayout.Label("LAV ADAM'IN DUKKANI", title);
         GUILayout.Label($"Paran: {eco.money}", new GUIStyle(label) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold });
-        GUILayout.Space(h * 0.012f);
+        GUILayout.Space(h * 0.008f);
 
-        GUILayout.Label("ALETLER (kazma)", small);
-        for (int t = 1; t < Economy.ToolNames.Length; t++) Row(eco, true, t);
-        GUILayout.Space(h * 0.015f);
+        scroll = GUILayout.BeginScrollView(scroll, false, true, GUILayout.Height(ph * 0.72f));
+        GUILayout.Label("KAZIYICILAR (fareyi surerek kazar)", small);
+        for (int t = 1; t < Economy.ToolNames.Length; t++)
+            Row(eco, Economy.ToolNames[t], Economy.ToolInfo[t], Economy.ToolPrice[t], eco.toolTier, t, () => eco.BuyTool());
+        GUILayout.Label("Kurek: yakinda...", small);
+        GUILayout.Space(h * 0.012f);
+        GUILayout.Label("KIRICILAR (cekic, balyoz, matkap, kirici)", small);
+        for (int t = 1; t <= Economy.BreakerCount; t++)
+            Row(eco, $"{t}. {Economy.BreakerNames[t]}", Economy.BreakerInfo(t), Economy.BreakerPrice(t), eco.breakerTier, t, () => eco.BuyBreaker());
+        GUILayout.Space(h * 0.012f);
         GUILayout.Label("KAPLAR (su tasima)", small);
-        for (int t = 1; t < Economy.VesselNames.Length; t++) Row(eco, false, t);
+        for (int t = 1; t < Economy.VesselNames.Length; t++)
+            Row(eco, Economy.VesselNames[t], Economy.VesselInfo[t], Economy.VesselPrice[t], eco.vesselTier, t, () => eco.BuyVessel());
+        GUILayout.EndScrollView();
 
         GUILayout.FlexibleSpace();
         if (Time.time < messageUntil) GUILayout.Label(message, hintStyle);
-        GUILayout.Label("Gelecekte: hortum sistemi, matkap...   |   E / Esc: kapat", small);
+        GUILayout.Label("Fare tekerlegi: listeyi kaydir   |   E / Esc: kapat", small);
         GUILayout.EndArea();
     }
 
-    void Row(Economy eco, bool isTool, int tier)
+    Vector2 scroll;
+
+    void Row(Economy eco, string name, string info, int price, int have, int tier, System.Func<bool> buy)
     {
-        string name = isTool ? Economy.ToolNames[tier] : Economy.VesselNames[tier];
-        string info = isTool ? Economy.ToolInfo[tier] : Economy.VesselInfo[tier];
-        int price = isTool ? Economy.ToolPrice[tier] : Economy.VesselPrice[tier];
-        int have = isTool ? eco.toolTier : eco.vesselTier;
         bool owned = have >= tier;
         bool unlocked = have == tier - 1;
         bool afford = eco.money >= price;
@@ -132,13 +139,12 @@ public class ShopKeeper : MonoBehaviour
         GUILayout.Label(info, small);
         GUILayout.EndVertical();
         GUILayout.FlexibleSpace();
-        string txt = owned ? "SAHIPSIN" : (unlocked ? $"Satin al  ({price})" : "Once oncekini al");
+        string txt = owned ? "SAHIPSIN" : (unlocked ? $"Satin al  ({price})" : $"Kilitli  ({price})");
         bool can = !owned && unlocked && afford;
         GUI.enabled = can;
         if (GUILayout.Button(txt, can ? btn : btnOff, GUILayout.Width(Screen.width * 0.2f), GUILayout.Height(Screen.height * 0.06f)))
         {
-            bool ok = isTool ? eco.BuyTool() : eco.BuyVessel();
-            if (ok)
+            if (buy())
             {
                 tools.RefreshLoadout();
                 message = $"{name} satin alindi!";
@@ -148,9 +154,7 @@ public class ShopKeeper : MonoBehaviour
         GUI.enabled = true;
         GUILayout.EndHorizontal();
         if (!owned && unlocked && !afford)
-        {
             GUILayout.Label($"Biraz daha obsidyen kaz: {price - eco.money} para eksik", small);
-        }
         GUILayout.Space(Screen.height * 0.008f);
     }
 }

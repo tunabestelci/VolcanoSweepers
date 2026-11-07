@@ -533,6 +533,7 @@ public static class VolcanoSweepersSetup
         tools.bucketPrefab = prefabs.bucket;
         tools.vesselPrefabs = prefabs.items.vessels;
         tools.toolPrefabs = prefabs.items.tools;
+        tools.breakerPrefabs = BreakerSetup.BuildPrefabs();
         tools.pickaxePrefab = prefabs.pickaxe;
         tools.coreVisualPrefab = prefabs.coreVisual;
         tools.coreItemPrefab = prefabs.coreItem;

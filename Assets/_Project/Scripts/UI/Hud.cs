@@ -64,8 +64,8 @@ public class Hud : MonoBehaviour
             GUI.Label(new Rect(0f, h * 0.62f, w, h * 0.06f), tools.Hint, big);
 
         // Kontroller
-        string tool = tools.CurrentTool == Tool.Buckets ? tools.VesselName.ToUpper() + "LAR" : tools.ToolName.ToUpper();
+        string tool = tools.CurrentTool == Tool.Buckets ? tools.VesselName.ToUpper() + "LAR" : (tools.CurrentTool == Tool.Breaker ? tools.BreakerName.ToUpper() : tools.ToolName.ToUpper());
         GUI.Label(new Rect(pad, h - pad - h * 0.11f, w, h * 0.05f),
-            $"[{tool}]  1: Kaplar (kaplar elindeyken 1/2: sol/sag kabi birak)  3: Kazma aleti (Q: birak)  |  Kovalar: sag tik sol kap, sol tik sag kap  |  Kasik/spatula: sol tik BASILI TUT + fareyi sur = kazi  |  E: yerden al / cevher bosalt / kuyuda basili tut: kova indir, doluyken bas: cek", label);
+            $"[{tool}]  1: Kaplar (kaplar elindeyken 1/2: sol/sag kabi birak)  3: Kaziyici  4: Kirici  |  Kovalar: sag tik sol kap, sol tik sag kap  |  Kaziyici: sol tik BASILI TUT + fareyi sur  |  Cekic: sol tik vur  |  Matkap/kirici: sol tik BASILI TUT  |  E: yerden al / cevher bosalt / kuyuda basili tut: kova indir, doluyken bas: cek", label);
     }
 }
