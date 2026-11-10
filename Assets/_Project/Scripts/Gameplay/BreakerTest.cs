@@ -232,6 +232,55 @@ public class BreakerTest : MonoBehaviour
             Log($"scrape end: money {money0} -> {eco.money} chips={deb.ChipCount} ores={tools.CoreCount}/{tools.CoreCapacity}");
         }
 
+        if (mode == "tools6")
+        {
+            var fFocus = typeof(PlayerTools).GetField("scrapeFocus", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var deb0 = ScrapeDebris.Ensure();
+            for (int t = 0; t < Economy.ToolNames.Length; t++)
+            {
+                eco.toolTier = t; eco.breakerTier = 0;
+                tools.botHoldScrape = false;
+                yield return new WaitForSeconds(0.4f);
+                tools.DoEquip(Tool.Buckets);
+                yield return null;
+                tools.DoEquip(Tool.Scraper);
+                Vector3 f0 = Vector3.zero;
+                for (int attempt = 0; attempt < 8; attempt++)
+                {
+                    tools.botHoldScrape = false;
+                    yield return new WaitForSeconds(0.4f);
+                    Vector3 p = Stage();
+                    yield return new WaitForSeconds(0.6f);
+                    player.LookAt(p);
+                    field.AddCrust(p, 4.5f, 1f); field.AddCrust(p, 3.0f, 1f);
+                    yield return new WaitForSeconds(0.3f);
+                    if (attempt == 0) yield return Shot($"s{t}_hand");
+                    tools.botHoldScrape = true;
+                    yield return new WaitForSeconds(0.6f);
+                    f0 = (Vector3)fFocus.GetValue(tools);
+                    if (f0.sqrMagnitude > 1f) break;
+                }
+                int m0 = eco.money;
+                float t0 = Time.time;
+                while (Time.time - t0 < 3.2f)
+                {
+                    float tt = Time.time - t0, ph = tt % 0.9f;
+                    float side = (Mathf.FloorToInt(tt / 0.9f) % 2 == 0) ? 1f : -1f;
+                    tools.botScrapeDelta = ph < 0.55f ? new Vector2(0.9f * side, 4.6f) : new Vector2(3.2f * side, -7.0f);
+                    if (Mathf.Abs(tt - 1.6f) < 0.02f) yield return Shot($"s{t}_scrape");
+                    yield return null;
+                }
+                tools.botScrapeDelta = Vector2.zero;
+                yield return new WaitForSeconds(0.2f);
+                Log($"tool {t} {Economy.ToolNames[t]}: tipLoad={tools.TipLoad:F0}/{tools.TipCapacity:F0} g chips={deb0.ChipCount}");
+                tools.botHoldScrape = false;
+                yield return new WaitForSeconds(0.3f);
+                yield return Shot($"s{t}_scoop");
+                yield return new WaitForSeconds(1.0f);
+                Log($"   scoop grams={tools.LastScoopGrams:F0} money+={eco.money - m0}");
+            }
+        }
+
         if (mode == "shop" || mode == "all")
         {
             eco.Earn(2000);
@@ -242,6 +291,20 @@ public class BreakerTest : MonoBehaviour
                 yield return new WaitForSeconds(0.6f);
                 ScreenCapture.CaptureScreenshot(Path.Combine(dir, "shop.png"));
                 yield return new WaitForSeconds(1.0f);
+                var setCat = typeof(ShopKeeper).GetMethod("SetCat", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                var catT = typeof(ShopKeeper).GetNestedType("Cat", System.Reflection.BindingFlags.NonPublic);
+                setCat.Invoke(keeper, new object[] { System.Enum.ToObject(catT, 1) });
+                yield return new WaitForSeconds(0.5f);
+                ScreenCapture.CaptureScreenshot(Path.Combine(dir, "shop_breakers.png"));
+                yield return new WaitForSeconds(1.0f);
+                // satin alma: bir kaziyici al, kartin parlamasi ve para dususu gorunsun
+                setCat.Invoke(keeper, new object[] { System.Enum.ToObject(catT, 0) });
+                var tryBuy = typeof(ShopKeeper).GetMethod("TryBuy", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                tryBuy.Invoke(keeper, new object[] { System.Enum.ToObject(catT, 0), eco.toolTier + 1 });
+                yield return new WaitForSeconds(0.25f);
+                ScreenCapture.CaptureScreenshot(Path.Combine(dir, "shop_bought.png"));
+                yield return new WaitForSeconds(1.0f);
+                Log($"shop: toolTier={eco.toolTier} money={eco.money}");
                 Log("shop screenshot requested");
             }
         }

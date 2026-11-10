@@ -10,6 +10,7 @@ public class Hud : MonoBehaviour
     void OnGUI()
     {
         if (tools == null || field == null) return;
+        if (ShopKeeper.Open) return;              // dukkan acikken ekran onundadir
         if (label == null)
         {
             label = new GUIStyle(GUI.skin.label) { fontSize = Mathf.RoundToInt(Screen.height * 0.024f) };

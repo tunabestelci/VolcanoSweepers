@@ -9,21 +9,27 @@ public class Economy : MonoBehaviour
     public static Economy I;
 
     public int money;
-    public int toolTier;      // kaziyici: 0 kasik, 1 spatula (kurek: ileride)
+    public int toolTier;      // kaziyici: 0 kasik, 1 kepce, 2 spatula, 3 kucuk kurek, 4 orta kurek, 5 buyuk kurek
     public int breakerTier;   // kirici: 0 yok, 1..20 sahip olunan en iyi kirici
     public int vesselTier;    // 0 bardak, 1 surahi, 2 kova
 
     // ---------- Kaziyicilar ----------
-    public static readonly string[] ToolNames = { "Kasik", "Spatula" };
+    public static readonly string[] ToolNames = { "Kasik", "Kepce", "Spatula", "Kucuk Kurek", "Orta Kurek", "Buyuk Kurek" };
     public static readonly string[] ToolInfo =
     {
-        "Fareyi surerek ust tabakayi ince ince alir, kirintilari toplar (delmez)",
-        "Daha genis uc: daha genis alan, daha hizli",
+        "Kucuk ve hassas: ust tabakayi ince ince soyar",
+        "Derin kase: daha cok kirinti tasir",
+        "Duz genis bicak: temiz, genis serit",
+        "Sivri uclu bahce kuregi: hizli ve keskin",
+        "Yuvarlak burunlu kurek: genis iz, bol yuk",
+        "Kar kuregi: devasa bicak, tek seferde yigin",
     };
-    public static readonly float[] ToolRadius = { 0.28f, 0.42f };
-    public static readonly float[] ToolPower = { 0.12f, 0.22f };
-    public static readonly int[] ToolBreakMoney = { 1, 2 };
-    public static readonly int[] ToolPrice = { 0, 60 };
+    public static readonly float[] ToolRadius = { 0.28f, 0.32f, 0.42f, 0.48f, 0.56f, 0.72f };   // (eski) etki alani
+    public static readonly float[] ToolPower = { 0.12f, 0.15f, 0.22f, 0.28f, 0.34f, 0.42f };
+    public static readonly int[] ToolBreakMoney = { 1, 1, 2, 3, 4, 5 };
+    public static readonly int[] ToolPrice = { 0, 40, 110, 280, 650, 1400 };
+    // kepceye bir seferde sigan kirinti (gram) - market kartinda da gosterilir
+    public static readonly float[] ToolScoopGrams = { 100f, 160f, 260f, 400f, 600f, 950f };
 
     // ---------- Kiricilar ----------
     public enum BreakerKind { Hammer, Drill, Jackhammer }

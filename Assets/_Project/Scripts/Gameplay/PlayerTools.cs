@@ -186,9 +186,22 @@ public class PlayerTools : MonoBehaviour
             right.readyEuler = new Vector3(25f, 0f, -10f);
             if (IsScraper)
             {
-                // Kasik/spatula daha kucuk: kameraya yakin ve gorunur durur, kazirken ucu nisana iner
-                right.readyPos = new Vector3(0.28f, -0.28f, 0.54f);
-                right.readyEuler = new Vector3(12f, -6f, -8f);
+                int st = ScrapeTier;
+                if (st <= 2)
+                {
+                    // Kasik/kepce/spatula kucuk: kameraya yakin ve gorunur durur
+                    right.readyPos = new Vector3(0.28f, -0.28f, 0.54f);
+                    right.readyEuler = new Vector3(12f, -6f, -8f);
+                }
+                else
+                {
+                    // Kurekler: sapin ust kismindan tutulur, bicak onde-asagida (omuzda tasir gibi degil, kazmaya hazir)
+                    // sapin ust ucundan tutulur (orijin = model merkezi): bicak onde, sag-alt kosede gorunur
+                    float len = st == 3 ? 0.72f : (st == 4 ? 0.95f : 1.05f);
+                    right.item.transform.localPosition = new Vector3(0f, 0f, len * 0.32f);
+                    right.readyPos = new Vector3(0.30f, -0.24f, 0.30f);
+                    right.readyEuler = new Vector3(2f, -12f, -20f);
+                }
             }
             right.carryPos = right.readyPos;
             right.carryEuler = right.readyEuler;
@@ -570,8 +583,20 @@ public class PlayerTools : MonoBehaviour
     public Vector2 botScrapeDelta;                              // test botu: fare hareketi (piksel/kare)
     bool IsScraper => CurrentTool == Tool.Scraper;
     const float ScrapeMouseScale = 0.0026f;                     // fare pikseli -> metre
-    static readonly float[] ScrapeToolScale = { 1.8f, 1.6f };   // kazima sirasinda alet boyu (kasik, spatula)
-    static readonly float[] ScoopCapacity = { 100f, 260f };     // kepceye bir seferde sigan kirinti (gram)
+    // Kademeler: 0 kasik, 1 kepce, 2 spatula, 3 kucuk kurek, 4 orta kurek, 5 buyuk kurek
+    static readonly float[] ScrapeToolScale = { 1.8f, 1.6f, 1.6f, 1.35f, 1.35f, 1.15f };   // kazima sirasinda alet boyu
+    static float[] ScoopCapacity => Economy.ToolScoopGrams;                                // kepceye bir seferde sigan kirinti (gram)
+    static readonly float[] ChipR = { 0.0088f, 0.0094f, 0.0107f, 0.0118f, 0.0128f, 0.0140f };
+    static readonly float[] ChipRMin = { 0.0060f, 0.0064f, 0.0075f, 0.0082f, 0.0088f, 0.0095f };
+    static readonly float[] ChipRMax = { 0.0110f, 0.0118f, 0.0135f, 0.0150f, 0.0162f, 0.0178f };
+    static readonly float[] CamScale = { 1f, 1.05f, 1.1f, 1.3f, 1.45f, 1.6f };            // buyuk alet: kamera daha yukarida
+    static readonly float[] TiltMin = { 18f, 18f, 18f, 20f, 22f, 30f };
+    static readonly float[] TiltMax = { 68f, 68f, 68f, 55f, 52f, 50f };
+    static readonly float[] ToolWeight = { 0f, 0.08f, 0.12f, 0.3f, 0.42f, 0.55f };        // agir alet fareyi gec takip eder
+    public Material dustMaterial;
+    // market icin: bicak genisligi (cm) ve agirlik (0..1)
+    public static float ScraperWidthCm(int tier) { int t = Mathf.Clamp(tier, 0, ScrapeToolScale.Length - 1); return ScrapeToolShape.ForTier(t).halfWidth * 2f * ScrapeToolScale[t] * 100f; }
+    public static float ScraperWeight(int tier) => ToolWeight[Mathf.Clamp(tier, 0, ToolWeight.Length - 1)];                                                          // kazima tozu (TorchSmoke)
     const float GramsPerM2 = 420f;                              // tamamen kazinan 1 m2 kabuktan cikan kirinti
     const float ChipsPerM2 = 380f;                              // gorunen pulcuk sayisi
     const float MoneyPerGram = 0.03f;
@@ -598,6 +623,9 @@ public class PlayerTools : MonoBehaviour
     float chipBudget, gramsBudget, moneyAcc, tickT;
     Vector3 lastStamp, scrapeVel; bool hasStamp;
     Vector3 lockCamPos; Quaternion lockCamRot;
+    Vector3 scrapeAim;                          // farenin gosterdigi nokta; alet agirligina gore onu takip eder
+    float introT = 1f;                          // basta alet yukaridan inip yuzeye konar
+    ParticleSystem dustPs;
     // toplama (kepceye alma)
     float scoopT = -1f;
     Vector3 scoopContact, scoopHead, scoopTarget;
@@ -651,8 +679,12 @@ public class PlayerTools : MonoBehaviour
         scrapeSpeed = 0f; scrapeToolDir = scrapeFwd; pressDip = 0f; hasStamp = false; noScrapeT = 0f;
         toolTiltNow = scrapeTilt;
         int tier = ScrapeTier;
-        toolShape = tier == 0 ? ScrapeToolShape.Spoon : ScrapeToolShape.Spatula;
+        toolShape = ScrapeToolShape.ForTier(tier);
         toolScale = ScrapeToolScale[tier];
+        scrapeTilt = Mathf.Clamp(scrapeTilt, TiltMin[tier], TiltMax[tier]);
+        toolTiltNow = scrapeTilt;
+        scrapeAim = p;
+        introT = 0f;
         scrapeTool = Instantiate(ToolPrefab());
         scrapeTool.transform.localScale = Vector3.one * toolScale;
         foreach (var c in scrapeTool.GetComponentsInChildren<Collider>()) Destroy(c);
@@ -665,7 +697,7 @@ public class PlayerTools : MonoBehaviour
         debris.onGramsDelivered = OnChipsDelivered;
         debris.onCoreDelivered = OnCoreDelivered;
         PlaceScrapeTool(scrapeFocus, scrapeToolDir, toolTiltNow, 0.01f);
-        SetHint("Fareyle sur: kirintilar kasigin ucunda birikir  |  Birak: topla  |  Tekerlek: aci", 3.2f);
+        SetHint($"Fareyle sur: kirintilar {ToolName} ucunda birikir  |  Birak: topla  |  Tekerlek: aci", 3.2f);
     }
 
     // Kilidi ve aleti kaldir; tasinan kirintilar varsa aninda teslim edilir
@@ -696,7 +728,7 @@ public class PlayerTools : MonoBehaviour
         Quaternion rot = Quaternion.LookRotation(tdir, Vector3.up);
         Vector3 pos = contact + Vector3.up * lift - rot * (toolShape.contact * toolScale);
         scrapeTool.transform.SetPositionAndRotation(pos, rot);
-        if (debris != null) debris.SetTool(scoopT < 0f, pos, rot, toolScale, toolShape, TipCapacity, ScrapeTier == 0 ? 0.0088f : 0.0107f, CoreRoom());
+        if (debris != null) debris.SetTool(scoopT < 0f, pos, rot, toolScale, toolShape, TipCapacity, ChipR[ScrapeTier], CoreRoom());
     }
 
     void StepScrape(LavaField field, Vector2 md)
@@ -707,12 +739,14 @@ public class PlayerTools : MonoBehaviour
         if (mouse != null)
         {
             float wheel = mouse.scroll.ReadValue().y;
-            if (Mathf.Abs(wheel) > 0.01f) scrapeTilt = Mathf.Clamp(scrapeTilt + Mathf.Sign(wheel) * 5f, 18f, 68f);
+            if (Mathf.Abs(wheel) > 0.01f) scrapeTilt = Mathf.Clamp(scrapeTilt + Mathf.Sign(wheel) * 5f, TiltMin[ScrapeTier], TiltMax[ScrapeTier]);
         }
-        float tiltT = Mathf.InverseLerp(18f, 68f, scrapeTilt);       // 0 = yatik, 1 = dik
+        int tierNow = ScrapeTier;
+        float tiltT = Mathf.InverseLerp(TiltMin[tierNow], TiltMax[tierNow], scrapeTilt);       // 0 = yatik, 1 = dik
+        float cs = CamScale[tierNow];
 
         Vector3 prev = scrapeFocus;
-        Vector3 np = prev + (scrapeRight * md.x + scrapeFwd * md.y) * ScrapeMouseScale;
+        Vector3 np = scrapeAim + (scrapeRight * md.x + scrapeFwd * md.y) * ScrapeMouseScale;
         // Calisma alani: oyuncuya yakin bir halka, yalnizca lav golunun icinde
         Vector3 pp = player.transform.position;
         Vector3 d = new Vector3(np.x - pp.x, 0f, np.z - pp.z);
@@ -721,7 +755,12 @@ public class PlayerTools : MonoBehaviour
         if (d.magnitude < minR) d = (d.sqrMagnitude > 1e-6f ? d.normalized : scrapeFwd) * minR;
         np = new Vector3(pp.x + d.x, 0f, pp.z + d.z);
         np.y = field.HeightAt(np);
-        if (!field.IsLava(np, 0.2f)) np = prev;
+        if (!field.IsLava(np, 0.2f)) np = scrapeAim;
+        scrapeAim = np;
+        // Agir alet (kurek) fareyi biraz geriden, yumusakca izler: agirlik hissi
+        float follow = Mathf.Lerp(60f, 9f, ToolWeight[tierNow]);
+        np = Vector3.Lerp(prev, scrapeAim, 1f - Mathf.Exp(-follow * dt));
+        np.y = field.HeightAt(np);
         scrapeFocus = np;
 
         Vector3 mv = np - prev; mv.y = 0f;
@@ -750,11 +789,16 @@ public class PlayerTools : MonoBehaviour
 
         // Kamera: noktanin hemen ustunde, neredeyse tepeden bakar; yumusakca takip eder
         scrapeCamFocus = Vector3.Lerp(scrapeCamFocus, scrapeFocus, 1f - Mathf.Exp(-8f * dt));
-        Vector3 camPos = scrapeCamFocus - scrapeFwd * 0.42f + Vector3.up * 1.08f;
+        Vector3 camPos = scrapeCamFocus - scrapeFwd * (0.42f * cs) + Vector3.up * (1.08f * cs);
+        // sakin nefes salinimi + hizli surerken hafifce yaklasma
+        float tb = Time.time;
+        camPos += scrapeRight * (Mathf.Sin(tb * 0.7f) * 0.006f * cs) + Vector3.up * (Mathf.Sin(tb * 0.93f + 1f) * 0.004f * cs);
+        camPos += (scrapeCamFocus - camPos) * (0.05f * sf);
         var terr = Terrain.activeTerrain;
         if (terr != null) camPos.y = Mathf.Max(camPos.y, terr.SampleHeight(camPos) + terr.transform.position.y + 0.6f);
         lockCamPos = camPos;
-        lockCamRot = Quaternion.LookRotation((scrapeCamFocus + scrapeFwd * 0.06f - camPos).normalized, Vector3.up);
+        lockCamRot = Quaternion.LookRotation((scrapeCamFocus + scrapeFwd * (0.06f * cs) - camPos).normalized, Vector3.up)
+                   * Quaternion.Euler(0f, 0f, Mathf.Sin(tb * 0.6f) * 0.35f);
         player.SetCameraLock(true, lockCamPos, lockCamRot);
         ScrapeMarks.Ensure().Focus(scrapeFocus);
 
@@ -765,6 +809,13 @@ public class PlayerTools : MonoBehaviour
         float back = mv.sqrMagnitude > 1e-8f ? Mathf.Clamp01(-Vector3.Dot(mv.normalized, scrapeToolDir)) * sf : 0f;
         backLift = Mathf.Lerp(backLift, back, 1f - Mathf.Exp(-10f * dt));
         float lift = (1f - Mathf.Clamp01(pressDip * 4f)) * 0.006f + backLift * 0.018f;
+        // giris: alet yukaridan suzulup yuzeye konar, degdiginde hafif bir tik
+        if (introT < 1f)
+        {
+            introT = Mathf.Min(1f, introT + dt / 0.3f);
+            lift += (1f - Smooth(introT)) * 0.16f * cs;
+            if (introT >= 1f) SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.pickaxeHit : null, scrapeFocus, 0.08f, Random.Range(1.5f, 1.8f), 0.05f);
+        }
         PlaceScrapeTool(scrapeFocus, scrapeToolDir, toolTiltNow, lift);
         scrapeLight.transform.position = scrapeFocus + Vector3.up * 0.9f - scrapeFwd * 0.15f;
 
@@ -777,8 +828,9 @@ public class PlayerTools : MonoBehaviour
             scrapeClinkT = Random.Range(0.09f, 0.24f) / (0.4f + drive);
             SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.pickaxeHit : null, scrapeFocus, 0.04f + 0.06f * drive, Random.Range(1.8f, 2.6f), 0.1f);
         }
+        EmitDust(scrapeFocus, scrapeToolDir, drive, toolShape.halfWidth * toolScale);
         if (debris != null && debris.TipLoadGrams >= TipCapacity - 4f && Hint == "")
-            SetHint("Kasigin ucu dolu - birak ve topla", 1.2f);
+            SetHint($"{ToolName} dolu - birak ve topla", 1.2f);
     }
 
     // Bicagin gectigi yerde ust tabaka soyulur; soyulan alan kadar pulcuk bicagin onunden kepceye dogru kalkar
@@ -813,7 +865,7 @@ public class PlayerTools : MonoBehaviour
         chipBudget -= n;
         float each = gramsBudget / n;
         gramsBudget = 0f;
-        float rMin = tier == 0 ? 0.006f : 0.0075f, rMax = tier == 0 ? 0.011f : 0.0135f;
+        float rMin = ChipRMin[tier], rMax = ChipRMax[tier];
         float big = Mathf.Lerp(0.9f, 1.2f, tiltT);
         Vector3 toolV = new Vector3(scrapeVel.x, 0f, scrapeVel.z);
         var tt = scrapeTool.transform;
@@ -834,6 +886,52 @@ public class PlayerTools : MonoBehaviour
         }
         scrapeFxT -= dt;
         if (scrapeFxT <= 0f && drive > 0.2f) { scrapeFxT = Mathf.Lerp(0.25f, 0.1f, drive); Fx.Chips(contact + head * 0.02f + Vector3.up * 0.02f, 2); }
+    }
+
+    // Bicagin arkasinda ince obsidyen tozu kalkar (hiz ve bicak genisligiyle)
+    float dustAcc;
+    void EmitDust(Vector3 contact, Vector3 head, float drive, float halfWidth)
+    {
+        if (dustMaterial == null || drive < 0.12f) return;
+        if (dustPs == null)
+        {
+            var go = new GameObject("ScrapeDust");
+            dustPs = go.AddComponent<ParticleSystem>();
+            dustPs.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            var m = dustPs.main;
+            m.loop = false; m.playOnAwake = false; m.maxParticles = 220;
+            m.startLifetime = new ParticleSystem.MinMaxCurve(0.6f, 1.2f);
+            m.startSpeed = new ParticleSystem.MinMaxCurve(0.02f, 0.12f);
+            m.startSize = new ParticleSystem.MinMaxCurve(0.04f, 0.09f);
+            m.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
+            m.startColor = new Color(0.32f, 0.27f, 0.3f, 0.32f);
+            m.gravityModifier = -0.02f;
+            m.simulationSpace = ParticleSystemSimulationSpace.World;
+            var em = dustPs.emission; em.enabled = false;
+            var sh = dustPs.shape; sh.enabled = false;
+            var sz = dustPs.sizeOverLifetime; sz.enabled = true;
+            sz.size = new ParticleSystem.MinMaxCurve(1f, new AnimationCurve(new Keyframe(0f, 0.5f), new Keyframe(1f, 1.8f)));
+            var col = dustPs.colorOverLifetime; col.enabled = true;
+            var g = new Gradient();
+            g.SetKeys(new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+                      new[] { new GradientAlphaKey(0f, 0f), new GradientAlphaKey(1f, 0.15f), new GradientAlphaKey(0f, 1f) });
+            col.color = g;
+            go.GetComponent<ParticleSystemRenderer>().sharedMaterial = dustMaterial;
+            dustPs.Play();
+        }
+        dustAcc += Time.deltaTime * drive * (18f + halfWidth * 160f);
+        Vector3 lat = Vector3.Cross(Vector3.up, head);
+        while (dustAcc >= 1f)
+        {
+            dustAcc -= 1f;
+            var ep = new ParticleSystem.EmitParams
+            {
+                position = contact - head * Random.Range(0.01f, 0.05f) + lat * (Random.Range(-1f, 1f) * halfWidth) + Vector3.up * 0.01f,
+                velocity = -head * Random.Range(0.02f, 0.1f) + Vector3.up * Random.Range(0.03f, 0.12f) + lat * Random.Range(-0.05f, 0.05f),
+                applyShapeToPosition = false
+            };
+            dustPs.Emit(ep, 1);
+        }
     }
 
     // Kaplarda kac cevherlik yer var (CollectCore ile ayni kural)
@@ -900,14 +998,14 @@ public class PlayerTools : MonoBehaviour
         {
             // kaldir: kase duzlesir, dolu kepce havaya kalkar
             float u = Smooth((scoopT - ScoopSlide) / (ScoopLift - ScoopSlide));
-            contact = scoopContact + scoopHead * 0.03f + Vector3.up * (0.2f * u);
+            contact = scoopContact + scoopHead * 0.03f + Vector3.up * (0.2f * CamScale[ScrapeTier] * u);
             tilt = Mathf.Lerp(14f, -4f, u);
         }
         else
         {
             // kaba dogru gotur ve dok
             float u = Smooth(Mathf.Clamp01((scoopT - ScoopLift) / (ScoopPour - ScoopLift)));
-            Vector3 up0 = scoopContact + scoopHead * 0.03f + Vector3.up * 0.2f;
+            Vector3 up0 = scoopContact + scoopHead * 0.03f + Vector3.up * (0.2f * CamScale[ScrapeTier]);
             contact = Vector3.Lerp(up0, Vector3.Lerp(up0, scoopTarget, 0.55f), u);
             tilt = Mathf.Lerp(-4f, 35f, u);
             if (!scoopPoured && scoopT >= ScoopLift + (ScoopPour - ScoopLift) * 0.45f)
@@ -1000,7 +1098,7 @@ public class PlayerTools : MonoBehaviour
         float target = 0.34f * Mathf.Pow(sf, 0.8f);
         scrapeVol = Mathf.MoveTowards(scrapeVol, target, Time.deltaTime * 1.6f);
         scrapeAudio.volume = scrapeVol;
-        scrapeAudio.pitch = 0.88f + 0.5f * sf;
+        scrapeAudio.pitch = (0.88f + 0.5f * sf) * Mathf.Lerp(1.08f, 0.74f, ScrapeTier / 5f);
         if (scrapeVol > 0.004f && !scrapeAudio.isPlaying) scrapeAudio.Play();
         else if (scrapeVol <= 0.004f && scrapeAudio.isPlaying) scrapeAudio.Pause();
     }

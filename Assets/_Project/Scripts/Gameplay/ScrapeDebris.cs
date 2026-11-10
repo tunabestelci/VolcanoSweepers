@@ -23,6 +23,47 @@ public struct ScrapeToolShape
         contact = new Vector3(0f, -0.025f, 0.259f)
     };
 
+    // Kepce, kucuk/orta/buyuk kurek: Blender'da normallestirilen glb modellerinin vertekslerinden olculdu
+    // (vs_scrape/normalize_scraper.py: orijin = sinir kutusu merkezi, +Z = calisan uc, +Y = cukur/acik yuz).
+    public static readonly ScrapeToolShape Ladle = new ScrapeToolShape
+    {
+        zCenter = 0.0f, halfLen = 0.06f, halfWidth = 0.045f,
+        rimY = -0.128f, depth = 0.038f, thickness = 0.004f, ellipse = true,
+        contact = new Vector3(0f, -0.1548f, 0.0602f)
+    };
+    public static readonly ScrapeToolShape SmallShovel = new ScrapeToolShape
+    {
+        zCenter = 0.2233f, halfLen = 0.1367f, halfWidth = 0.0744f,
+        rimY = 0.0109f, depth = 0.0084f, thickness = 0.006f, ellipse = false,
+        contact = new Vector3(0f, -0.0044f, 0.36f)
+    };
+    public static readonly ScrapeToolShape MidShovel = new ScrapeToolShape
+    {
+        zCenter = 0.3612f, halfLen = 0.1138f, halfWidth = 0.0829f,
+        rimY = 0.0124f, depth = 0.0054f, thickness = 0.0031f, ellipse = false,
+        contact = new Vector3(0f, 0.0155f, 0.475f)
+    };
+    public static readonly ScrapeToolShape BigShovel = new ScrapeToolShape
+    {
+        zCenter = 0.3988f, halfLen = 0.1262f, halfWidth = 0.1772f,
+        rimY = 0.0272f, depth = 0.0348f, thickness = 0.008f, ellipse = false,
+        contact = new Vector3(0f, 0.0582f, 0.525f)
+    };
+
+    // Kaziyici kademesi: 0 kasik, 1 kepce, 2 spatula, 3 kucuk kurek, 4 orta kurek, 5 buyuk kurek
+    public static ScrapeToolShape ForTier(int tier)
+    {
+        switch (tier)
+        {
+            case 0: return Spoon;
+            case 1: return Ladle;
+            case 2: return Spatula;
+            case 3: return SmallShovel;
+            case 4: return MidShovel;
+            default: return BigShovel;
+        }
+    }
+
     // Kepce ic yuzeyinin yuksekligi ve normali (yerel). inside: nokta kepce izdusumunde mi
     public float Surface(float x, float z, float margin, out bool inside, out Vector3 n)
     {

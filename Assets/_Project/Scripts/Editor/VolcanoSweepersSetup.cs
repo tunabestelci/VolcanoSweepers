@@ -532,13 +532,15 @@ public static class VolcanoSweepersSetup
         tools.rightHandRoot = rh;
         tools.bucketPrefab = prefabs.bucket;
         tools.vesselPrefabs = prefabs.items.vessels;
-        tools.toolPrefabs = prefabs.items.tools;
+        tools.toolPrefabs = ScraperSetup.BuildToolList(prefabs.items.tools[0], prefabs.items.tools[1]);
+        tools.dustMaterial = AssetDatabase.LoadAssetAtPath<Material>("Assets/_Project/Art/Materials/TorchSmoke.mat");
         tools.breakerPrefabs = BreakerSetup.BuildPrefabs();
         tools.pickaxePrefab = prefabs.pickaxe;
         tools.coreVisualPrefab = prefabs.coreVisual;
         tools.coreItemPrefab = prefabs.coreItem;
 
         foreach (var k in Object.FindObjectsByType<ShopKeeper>(FindObjectsSortMode.None)) { k.tools = tools; k.player = pc; }
+        ShopIcons.BuildAndAssign();
         var hud = sys.AddComponent<Hud>();
         hud.tools = tools;
         hud.field = field;
