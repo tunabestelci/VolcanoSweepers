@@ -205,69 +205,91 @@ Shader "VolcanoSweepers/LavaCrust"
                 float smooth = lerp(0.25, obsMS.a, c);
                 float metallic = lerp(0.0, obsMS.r, c);
 
-                // Kirici ile ufalanmis ust tabaka: once kosegen catlak agi (yerinde duran plakalar), vurdukca plakalar
-                // ince catlaklarla bolunur ve sonunda mat, tanecikli obsidyen kirintisina doner.
-                float br = SAMPLE_TEXTURE2D(_Broken, sampler_Broken, IN.uv).r * c * lavaAmt;
+                // Kazima izi (ScrapeMarks): texel = ustten kazinan derinlik (bayt/255; 252 = 9 kasik katmani)
+                float crustK = c * lavaAmt;
+                float s0 = 0.0, sxp = 0.0, sxn = 0.0, szp = 0.0, szn = 0.0;
+                float2 suv = (IN.positionWS.xz - _ScrapeRect.xy) * _ScrapeRect.zw;
+                if (_ScrapeRect.z > 0.0 && suv.x > 0.0 && suv.y > 0.0 && suv.x < 1.0 && suv.y < 1.0)
+                {
+                    float tu = 0.015 * _ScrapeRect.z;
+                    s0  = SAMPLE_TEXTURE2D_LOD(_ScrapeMarks, sampler_ScrapeMarks, suv, 0).r;
+                    sxp = SAMPLE_TEXTURE2D_LOD(_ScrapeMarks, sampler_ScrapeMarks, suv + float2(tu, 0), 0).r;
+                    sxn = SAMPLE_TEXTURE2D_LOD(_ScrapeMarks, sampler_ScrapeMarks, suv - float2(tu, 0), 0).r;
+                    szp = SAMPLE_TEXTURE2D_LOD(_ScrapeMarks, sampler_ScrapeMarks, suv + float2(0, tu), 0).r;
+                    szn = SAMPLE_TEXTURE2D_LOD(_ScrapeMarks, sampler_ScrapeMarks, suv - float2(0, tu), 0).r;
+                }
+                float sB = s0 * 255.0;                                   // kazinan derinlik (bayt)
+                float2 bk = SAMPLE_TEXTURE2D(_Broken, sampler_Broken, IN.uv).rg;
+                float br = bk.x * crustK;                                // bu dongudeki kirma ilerlemesi (catlaklar)
+                float remain = saturate((bk.y * 255.0 - sB) / 28.0);     // texelde kalan ufalanmis kalinlik (kasik katmani, 1'e kirpili)
+                float edgeN = SAMPLE_TEXTURE2D(_LavaMap, sampler_LavaMap, meters * 2.3 + 0.7).r;
+                float rub = smoothstep(0.08, 0.5, remain + (edgeN - 0.5) * 0.45) * crustK;      // kirinti tabakasi (duzensiz kenar)
+
+                // Kirici catlaklari: kosegen ag (yerinde duran plakalar), vurdukca ince catlaklarla bolunur
                 float glow = 0.0;
-                if (br > 0.004)
+                if (br > 0.004 || rub > 0.004)
                 {
                     const float S1 = 0.34, S2 = 0.11;                          // plaka boyu (m)
                     float3 v1 = VoronoiEdge(meters / S1);
                     float3 v2 = VoronoiEdge(meters / S2 + 17.3);
-                    float e1 = v1.x * S1, e2 = v2.x * S2;                    // kenara uzaklik (m)
+                    float e1 = v1.x * S1, e2 = v2.x * S2;
                     float px = max(fwidth(meters.x), 1e-4);
                     float w1 = 0.0012 + 0.0026 * smoothstep(0.1, 0.8, br);
                     float w2 = 0.0008 + 0.0016 * smoothstep(0.4, 1.0, br);
                     float crack1 = (1.0 - smoothstep(w1, w1 + px * 1.5, e1)) * smoothstep(0.02, 0.25, br);
                     float crack2 = (1.0 - smoothstep(w2, w2 + px * 1.5, e2)) * smoothstep(0.3, 0.7, br);
-                    float cracks = saturate(max(crack1, crack2));
-                    // her plaka hafifce farkli egik ve tonda: kirik ama yerinde duruyor
+                    // kazinip temizlenen yerde catlak kalmaz (alttaki taze obsidyen); yeniden kirilinca tekrar gorunur
+                    float crackVis = max(saturate(remain * 4.0), 1.0 - smoothstep(0.5, 3.0, sB));
+                    crack1 *= crackVis; crack2 *= crackVis;
+                    float cracks = saturate(max(crack1, crack2)) * (1.0 - rub * 0.25);
                     float2 tilt = (Hash22(v1.yz) - 0.5) * 0.35 * smoothstep(0.05, 0.5, br)
                                 + (Hash22(v2.yz + 3.1) - 0.5) * 0.3 * smoothstep(0.35, 0.8, br);
                     float plateTone = lerp(0.85, 1.12, Hash22(v2.yz + 7.7).x);
-                    // tanecikler: 1.2 cm'lik kum/cakil
                     float speck = SAMPLE_TEXTURE2D(_ObsMap, sampler_ObsMap, meters * 11.7 + 0.31).g
                                 * SAMPLE_TEXTURE2D(_LavaMap, sampler_LavaMap, meters * 7.3).r * 1.6;
-                    float rub = smoothstep(0.45, 1.0, br);
                     float grain = SAMPLE_TEXTURE2D(_ObsMap, sampler_ObsMap, meters * 5.3).r;
-                    float3 dust = float3(0.085, 0.08, 0.092) * (0.55 + 0.9 * speck) * (0.8 + 0.4 * grain);
-                    albedo *= lerp(1.0, plateTone * 0.92, smoothstep(0.05, 0.5, br));
-                    albedo = lerp(albedo, dust, rub * 0.85);
-                    float edgeShade = smoothstep(0.0, 0.025, e1) * 0.25 + 0.75;    // kenarda hafif golge
+                    // kirinti: koyu obsidyen taneleri arasinda acik gri toz ve cam gibi parlayan kirik yuzler
+                    float g1 = SAMPLE_TEXTURE2D(_LavaMap, sampler_LavaMap, meters * 17.0).r;
+                    float g2 = SAMPLE_TEXTURE2D(_ObsMap, sampler_ObsMap, meters * 29.0 + 0.5).g;
+                    float grains = smoothstep(0.38, 0.62, g1 * 0.6 + g2 * 0.6 - 0.1);
+                    float3 dust = lerp(float3(0.025, 0.022, 0.028), float3(0.19, 0.18, 0.2), grains) * (0.75 + 0.5 * speck);
+                    albedo *= lerp(1.0, plateTone * 0.92, smoothstep(0.05, 0.5, br) * crackVis);
+                    albedo = lerp(albedo, dust * plateTone, rub * 0.7);
+                    float edgeShade = smoothstep(0.0, 0.025, e1) * 0.25 + 0.75;
                     albedo *= lerp(1.0, edgeShade, smoothstep(0.05, 0.4, br));
                     albedo = lerp(albedo, float3(0.008, 0.006, 0.008), cracks * 0.95);
-                    smooth = lerp(smooth, lerp(smooth * 0.8, 0.1, rub), smoothstep(0.05, 0.6, br));
+                    smooth = lerp(smooth, lerp(smooth * 0.8, lerp(0.55, 0.08, grains), rub), smoothstep(0.05, 0.6, max(br, rub)));
                     smooth = lerp(smooth, 0.05, cracks);
                     metallic = lerp(metallic, 0.0, rub);
-                    normalWS = normalize(normalWS + float3(tilt.x, 0.0, tilt.y) + float3(speck - 0.5, 0.0, grain - 0.5) * 0.6 * rub);
+                    normalWS = normalize(normalWS + float3(tilt.x, 0.0, tilt.y) * (1.0 - rub * 0.5) * crackVis + float3(g1 - 0.5, 0.0, g2 - 0.5) * 1.1 * rub);
                     glow = crack1 * (1.0 - rub) * smoothstep(0.05, 0.3, br) * 0.35;
                 }
 
-                // Kasik izi: ust tabakasi soyulmus taze obsidyen (daha acik, cam gibi parlak), hafif cukur ve kenarinda murekkep cizgisi
-                float2 suv = (IN.positionWS.xz - _ScrapeRect.xy) * _ScrapeRect.zw;
-                if (_ScrapeRect.z > 0.0 && suv.x > 0.0 && suv.y > 0.0 && suv.x < 1.0 && suv.y < 1.0)
+                // Kazinmis yuzey: kirinti alininca alttaki taze obsidyen (tozsuz, cila gibi parlak). Her katmanda biraz
+                // daha koyu; obsidyenin dibine yaklastikca alttaki lavin isigi sizar.
+                float thin = 0.0;
+                if (sB > 0.5)
                 {
-                    float tu = 0.015 * _ScrapeRect.z;
-                    float s0  = SAMPLE_TEXTURE2D_LOD(_ScrapeMarks, sampler_ScrapeMarks, suv, 0).r;
-                    float sxp = SAMPLE_TEXTURE2D_LOD(_ScrapeMarks, sampler_ScrapeMarks, suv + float2(tu, 0), 0).r;
-                    float sxn = SAMPLE_TEXTURE2D_LOD(_ScrapeMarks, sampler_ScrapeMarks, suv - float2(tu, 0), 0).r;
-                    float szp = SAMPLE_TEXTURE2D_LOD(_ScrapeMarks, sampler_ScrapeMarks, suv + float2(0, tu), 0).r;
-                    float szn = SAMPLE_TEXTURE2D_LOD(_ScrapeMarks, sampler_ScrapeMarks, suv - float2(0, tu), 0).r;
-                    float crustK = c * lavaAmt;
-                    float scr = smoothstep(0.1, 0.55, s0) * crustK;
+                    float scrAny = smoothstep(0.5, 6.0, sB) * crustK;
+                    float scr = scrAny * (1.0 - rub);
+                    // altinda hala kirinti olan yerde surtme izi: sikismis, biraz koyu ve parlak kirinti
+                    albedo *= 1.0 - 0.22 * scrAny * rub;
+                    smooth = lerp(smooth, 0.45, scrAny * rub * 0.7);
+                    float layersDone = sB / 28.0;
                     float2 g = float2(sxp - sxn, szp - szn);
-                    // soyulan yer cevresinden alcak: kenar basamagi isigi yakalar
-                    normalWS = normalize(lerp(normalWS, nGeo, scr * 0.8) + float3(g.x, 0.0, g.y) * 0.3 * crustK);
-                    // ince kazima cizikleri (yuksek frekansli doku)
+                    normalWS = normalize(lerp(normalWS, nGeo, scr * 0.6) + float3(g.x, 0.0, g.y) * 2.2 * crustK);
                     float streak = SAMPLE_TEXTURE2D(_ObsMap, sampler_ObsMap, meters * 3.1).r;
-                    // taze yuzey: ayni obsidyen dokusu ama tozsuz, biraz acik ve serin tonlu, cila gibi parlak
                     float3 fresh = obs * 0.7 + float3(0.075, 0.07, 0.095) * (0.8 + 0.4 * streak);
+                    fresh *= 1.0 - 0.055 * layersDone;
                     albedo = lerp(albedo, fresh, scr);
                     smooth = lerp(smooth, 0.96, scr);
                     metallic = lerp(metallic, 0.0, scr);
-                    float ink = smoothstep(0.05, 0.2, s0) * (1.0 - smoothstep(0.28, 0.55, s0)) * crustK;
-                    albedo = lerp(albedo, float3(0.006, 0.005, 0.008), ink * 0.95);
+                    // katman basamaklari: kenarda ince murekkep cizgisi
+                    float ink = smoothstep(0.025, 0.09, length(g)) * crustK;
+                    albedo = lerp(albedo, float3(0.006, 0.005, 0.008), ink * 0.9);
                     smooth = lerp(smooth, 0.2, ink);
+                    float usableB = max((m.r - 0.3) / 0.7 * 252.0, 1.0);
+                    thin = smoothstep(0.55, 1.0, sB / usableB) * scr;
                 }
 
                 float pulse = 0.85 + 0.2 * sin(_Time.y * 1.7 + noise * 6.0);
@@ -275,6 +297,7 @@ Shader "VolcanoSweepers/LavaCrust"
                 float3 emission = lava * _EmissionStrength * 0.8 * pulse * (1.0 - c);
                 emission += float3(1.0, 0.35, 0.05) * edge * 0.9 * (1.0 - c * 0.3);
                 emission += float3(1.0, 0.32, 0.05) * glow * 0.35 * pulse;     // catlaklarin dibinde soluk lav isigi
+                emission += lava * thin * 0.55 * pulse;                         // incelen obsidyenden sizan lav
 
                 // Ana kaya (dibe ulasildi)
                 albedo = lerp(_Bedrock.rgb, albedo, lavaAmt);

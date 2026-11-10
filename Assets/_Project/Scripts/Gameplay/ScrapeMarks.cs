@@ -97,11 +97,12 @@ public class ScrapeMarks : MonoBehaviour
     }
 
     // Bicak ayak izini a->b yolu boyunca supurur. lateral: bicagin yatay ekseni, head: bicak normali (yatay).
-    // Iz, bu karedeki tum ara damgalarin en buyugu kadar derinlesir (hiza bagli degil), yalnizca kirilmis kabukta.
-    // Dondurulen: kazinan alan (m^2, derinlik agirlikli).
-    public float Stamp(Vector3 a, Vector3 b, Vector3 lateral, Vector3 head, float halfW, float halfL, float strength, LavaField field)
+    // Texel degeri = ustten kazinan derinlik (bayt, LavaField.FullBytes = 9 kasik katmani). Bicak bir texelin
+    // uzerinden bir kez gectiginde (yol boyu ~ bicak boyu) 'passBytes' kadar derinlesir; ancak kirici ile
+    // ufalanmis derinligi asamaz. Dondurulen: kazinan miktar (m^2 * kasik katmani).
+    public float Stamp(Vector3 a, Vector3 b, Vector3 lateral, Vector3 head, float halfW, float halfL, float passBytes, LavaField field)
     {
-        if (strength <= 0f) return 0f;
+        if (passBytes <= 0f || field == null) return 0f;
         lateral.y = 0f; head.y = 0f;
         lateral = lateral.sqrMagnitude > 1e-8f ? lateral.normalized : Vector3.right;
         head = head.sqrMagnitude > 1e-8f ? head.normalized : Vector3.forward;
@@ -138,6 +139,9 @@ public class ScrapeMarks : MonoBehaviour
                 }
         }
 
+        // bu karede bicagin kat ettigi yol / bicak boyu: bir texel uzerinden tam gecis = bir katman
+        float moveFrac = Mathf.Clamp01(ab.magnitude / Mathf.Max(0.004f, 2f * halfL));
+        float ratio = Texel * Texel / field.CellArea;
         float area = 0f, ta = Texel * Texel;
         for (int gy = y0; gy <= y1; gy++)
         {
@@ -147,25 +151,59 @@ public class ScrapeMarks : MonoBehaviour
                 float cov = tmp[(gy - y0) * w + (gx - x0)];
                 if (cov <= 0.001f) continue;
                 Vector3 wp = TexelCenter(gx, gy);
-                // yalnizca kirici ile ufalanmis kabuk kazinir
-                float crustF = field != null ? field.ScrapeableAt(wp) : 1f;
-                if (crustF <= 0f) continue;
+                // yalnizca kirici ile ufalanmis derinlige kadar kazinir
+                float limit = field.ScrapeLimitBytes(wp);
                 int tx = gx / Tile;
-                var t = GetTile(tx, ty, true);
+                var t = GetTile(tx, ty, limit > 0.5f);
+                if (t == null) continue;
                 int li = ly * Tile + gx % Tile;
                 int old = t[li];
-                if (old >= 255) continue;
-                int nv = Mathf.Min(255, old + Mathf.CeilToInt(strength * cov * crustF * 255f));
-                if (nv == old) continue;
+                if (old >= limit - 0.5f) continue;
+                float inc = passBytes * cov * moveFrac;
+                int incI = Mathf.FloorToInt(inc + Random.value);
+                if (incI <= 0) continue;
+                int nv = Mathf.Min(Mathf.Min(255, Mathf.FloorToInt(limit + 0.5f)), old + incI);
+                if (nv <= old) continue;
                 t[li] = (byte)nv;
-                area += (nv - old) * (1f / 255f) * ta;
+                area += (nv - old) / LavaField.LayerBytes * ta;
                 dirty.Add(Key(tx, ty));
+                field.AddCut(wp, old, nv, ratio);
             }
         }
         return area;
     }
 
-    // Yeni kabuk (su dokulunce) kazinmis izi kapatir: tazelenen ust tabaka tekrar kazinabilir.
+    // Kazilmis derinlik (bayt)
+    public float DepthAt(Vector3 p) { return At(p) * 255f; }
+
+    // Su dokulunce yeni kabuk: yaricap icindeki kazima izi tamamen silinir
+    public void Clear(Vector3 c, float radius)
+    {
+        if (tiles.Count == 0) return;
+        int x0 = Mathf.Max(0, GX(c.x - radius)), x1 = GX(c.x + radius), y0 = Mathf.Max(0, GY(c.z - radius)), y1 = GY(c.z + radius);
+        float r2 = radius * radius;
+        for (int ty = y0 / Tile; ty <= y1 / Tile; ty++)
+            for (int tx = x0 / Tile; tx <= x1 / Tile; tx++)
+            {
+                var t = GetTile(tx, ty, false);
+                if (t == null) continue;
+                bool any = false;
+                int gy0 = Mathf.Max(y0, ty * Tile), gy1 = Mathf.Min(y1, ty * Tile + Tile - 1);
+                int gx0 = Mathf.Max(x0, tx * Tile), gx1 = Mathf.Min(x1, tx * Tile + Tile - 1);
+                for (int gy = gy0; gy <= gy1; gy++)
+                    for (int gx = gx0; gx <= gx1; gx++)
+                    {
+                        Vector3 q = TexelCenter(gx, gy) - c;
+                        if (q.x * q.x + q.z * q.z > r2) continue;
+                        int li = (gy % Tile) * Tile + gx % Tile;
+                        if (t[li] == 0) continue;
+                        t[li] = 0; any = true;
+                    }
+                if (any) dirty.Add(Key(tx, ty));
+            }
+    }
+
+    // (eski) Yeni kabuk kazinmis izi kademeli kapatir.
     public void Erase(Vector3 c, float radius, float amount)
     {
         if (tiles.Count == 0 || amount <= 0f) return;

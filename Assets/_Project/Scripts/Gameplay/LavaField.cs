@@ -41,13 +41,20 @@ public class LavaField : MonoBehaviour
     NativeArray<byte> basin;
     NativeArray<byte> basinSoft;
     NativeArray<Unity.Mathematics.half4> packed;
-    // kirici ile yumusatilmis (ufalanmis) ust tabaka 0..1: yalnizca burasi kaziyiciyla kazinir
-    NativeArray<float> broken;
+    // Katmanlar: suyla olusan obsidyenin kullanilabilir kalinligi (kabuk 1 -> 0.3) = FullBytes = 9 kasik katmani.
+    // Derinlikler "bayt" biriminde (ScrapeMarks dokusuyla ayni, ustten mutlak derinlik).
+    //   broken: bu dongudeki kirma ilerlemesi 0..1 (catlaklar)
+    //   soft:   kirici ile ufalanmis derinlik siniri; kaziyici bu derinlige kadar inebilir
+    //   cut:    hucrede kazinan ortalama derinlik; cutMax: hucredeki en derin texel
+    NativeArray<float> broken, soft, cut, cutMax;
     NativeArray<byte> brokenPacked;
     Texture2D brokenTex;
     bool brokenDirty;
-    const float LayerDepth = 0.3f;        // bir tam kazima gecisinin kabuktan aldigi kalinlik (kabuk 0..1)
-    const float CrustPerBreak = 16f;      // eski "bir kirilis" hacmi (kabuk birimi): lav cekilmesi bununla olceklenir
+    float brokenUploadT;
+    public const float UsableDepth = 0.7f;     // kabuk 1.0 -> 0.3 (lav esigi)
+    public const float FullBytes = 252f;       // kullanilabilir kalinligin tamami
+    public const float LayerBytes = FullBytes / 9f;   // bir kasik katmani
+    const float CrustPerBreak = 16f;           // eski "bir kirilis" hacmi (kabuk birimi): lav cekilmesi bununla olceklenir
     int basinCount;
     Texture2D maskTex;
     bool dirty;
@@ -83,7 +90,10 @@ public class LavaField : MonoBehaviour
         basinSoft = new NativeArray<byte>(n2, Allocator.Persistent);
         packed = new NativeArray<Unity.Mathematics.half4>(n2, Allocator.Persistent);
         broken = new NativeArray<float>(n2, Allocator.Persistent);
-        brokenPacked = new NativeArray<byte>(n2, Allocator.Persistent);
+        soft = new NativeArray<float>(n2, Allocator.Persistent);
+        cut = new NativeArray<float>(n2, Allocator.Persistent);
+        cutMax = new NativeArray<float>(n2, Allocator.Persistent);
+        brokenPacked = new NativeArray<byte>(n2 * 2, Allocator.Persistent);
         if (basinData != null)
         {
             var bytes = basinData.bytes;
@@ -101,7 +111,7 @@ public class LavaField : MonoBehaviour
         };
         matInstance = new Material(material);
         matInstance.SetTexture("_Mask", maskTex);
-        brokenTex = new Texture2D(res, res, TextureFormat.R8, false, true) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
+        brokenTex = new Texture2D(res, res, TextureFormat.RG16, false, true) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
         matInstance.SetTexture("_Broken", brokenTex);
         brokenDirty = true;
         matInstance.SetFloat("_FieldSize", size);
@@ -111,6 +121,7 @@ public class LavaField : MonoBehaviour
         GetComponent<MeshFilter>().sharedMesh = BuildMesh();
         dirty = true;
         Upload();
+        UploadBroken();
     }
 
     void OnDestroy()
@@ -123,6 +134,9 @@ public class LavaField : MonoBehaviour
         if (basinSoft.IsCreated) basinSoft.Dispose();
         if (packed.IsCreated) packed.Dispose();
         if (broken.IsCreated) broken.Dispose();
+        if (soft.IsCreated) soft.Dispose();
+        if (cut.IsCreated) cut.Dispose();
+        if (cutMax.IsCreated) cutMax.Dispose();
         if (brokenPacked.IsCreated) brokenPacked.Dispose();
     }
 
@@ -289,9 +303,13 @@ public class LavaField : MonoBehaviour
     [BurstCompile]
     struct PackBrokenJob : IJobParallelFor
     {
-        [ReadOnly] public NativeArray<float> src;
-        public NativeArray<byte> outp;
-        public void Execute(int i) { outp[i] = (byte)Unity.Mathematics.math.clamp((int)(src[i] * 255f + 0.5f), 0, 255); }
+        [ReadOnly] public NativeArray<float> src, soft;
+        [NativeDisableParallelForRestriction] public NativeArray<byte> outp;
+        public void Execute(int i)
+        {
+            outp[i * 2] = (byte)Unity.Mathematics.math.clamp((int)(src[i] * 255f + 0.5f), 0, 255);
+            outp[i * 2 + 1] = (byte)Unity.Mathematics.math.clamp((int)(soft[i] + 0.5f), 0, 255);
+        }
     }
 
     void RefreshStats()
@@ -334,6 +352,17 @@ public class LavaField : MonoBehaviour
     void LateUpdate()
     {
         if (dirty) Upload();
+        // ufalanma dokusu en fazla saniyede ~12 kez yuklenir (kazirken her kare yukleme takilmaya yol aciyordu)
+        if (brokenDirty && Time.unscaledTime >= brokenUploadT) UploadBroken();
+    }
+
+    void UploadBroken()
+    {
+        new PackBrokenJob { src = broken, soft = soft, outp = brokenPacked }.Schedule(res * res, 8192).Complete();
+        brokenTex.SetPixelData(brokenPacked, 0);
+        brokenTex.Apply(false);
+        brokenDirty = false;
+        brokenUploadT = Time.unscaledTime + 0.08f;
     }
 
     void Upload()
@@ -343,13 +372,6 @@ public class LavaField : MonoBehaviour
         maskTex.SetPixelData(packed, 0);
         maskTex.Apply(false);
         dirty = false;
-        if (brokenDirty)
-        {
-            new PackBrokenJob { src = broken, outp = brokenPacked }.Schedule(res * res, 8192).Complete();
-            brokenTex.SetPixelData(brokenPacked, 0);
-            brokenTex.Apply(false);
-            brokenDirty = false;
-        }
     }
 
     // ---------- Koordinat ----------
@@ -376,13 +398,34 @@ public class LavaField : MonoBehaviour
     public float DigAt(Vector3 world) { return Sample(dig, ToGrid(world)); }
     public float BrokenAt(Vector3 world) { return Sample(broken, ToGrid(world)); }
 
-    // Kaziyici burada ne kadar alabilir (0..1): kabuk olmali ve kirici ile yumusatilmis olmali
-    public float ScrapeableAt(Vector3 world)
+    public float SoftBytesAt(Vector3 world) { return Sample(soft, ToGrid(world)); }
+    public float CellArea { get { float c = size / (res - 1); return c * c; } }
+
+    // Bu noktadaki kullanilabilir obsidyen kalinligi (bayt; FullBytes = 9 kasik katmani)
+    public float UsableBytesAt(Vector3 world)
+    {
+        float c = Sample(crust, ToGrid(world));
+        return c < 0.3f ? 0f : (c - 0.3f) / UsableDepth * FullBytes;
+    }
+
+    // Kaziyici bu texelde en fazla bu derinlige inebilir: ufalanmis sinir ve obsidyenin dibi
+    public float ScrapeLimitBytes(Vector3 world)
     {
         Vector2 g = ToGrid(world);
-        if (Sample(crust, g) < 0.3f) return 0f;
-        return Mathf.InverseLerp(0.06f, 0.45f, Sample(broken, g));
+        float c = Sample(crust, g);
+        if (c < 0.3f) return 0f;
+        return Mathf.Min(Sample(soft, g), (c - 0.3f) / UsableDepth * FullBytes);
     }
+
+    int CellIndex(Vector3 world)
+    {
+        Vector2 g = ToGrid(world);
+        int x = Mathf.RoundToInt(g.x), y = Mathf.RoundToInt(g.y);
+        if (x < 0 || y < 0 || x >= res || y >= res) return -1;
+        return y * res + x;
+    }
+
+    float UsableBytes(int i) { return crust[i] < 0.3f ? 0f : (crust[i] - 0.3f) / UsableDepth * FullBytes; }
 
     // Bu noktadaki lav derinligi (0..1 olcek)
     float DepthN(Vector2 g) { return Sample(bed, g) - Sample(dig, g); }
@@ -454,7 +497,7 @@ public class LavaField : MonoBehaviour
 
     delegate void Brush(int i, float w);
 
-    void Paint(Vector3 world, float radius, Brush brush)
+    void Paint(Vector3 world, float radius, Brush brush, bool crustChanged = true)
     {
         Vector2 g = ToGrid(world);
         float cell = size / (res - 1);
@@ -475,7 +518,7 @@ public class LavaField : MonoBehaviour
                 brush(idx, w);
             }
         }
-        dirty = true;
+        if (crustChanged) dirty = true;
     }
 
     // Su parcacigi dustugu yerde kabuk olusturur
@@ -484,63 +527,64 @@ public class LavaField : MonoBehaviour
         Paint(world, radius, (i, w) =>
         {
             if (bed[i] - dig[i] < 0.03f) return;      // kuru/cok sigi: kabuk olusmaz
-            crust[i] = Mathf.Min(1f, crust[i] + amount * w);
-            if (broken[i] > 0f) { broken[i] = Mathf.Max(0f, broken[i] - amount * w * 1.5f); brokenDirty = true; }
+            // kazinmis kalinlik dusulur, yeni su ustune obsidyen ekler; ufalanma ve kazima izi sifirlanir (taze tabaka)
+            float eff = crust[i] >= 0.3f ? crust[i] - cut[i] / FullBytes * UsableDepth : crust[i];
+            crust[i] = Mathf.Min(1f, eff + amount * w);
+            if (cut[i] > 0f || soft[i] > 0f || broken[i] > 0f)
+            {
+                cut[i] = 0f; cutMax[i] = 0f; soft[i] = 0f; broken[i] = 0f;
+                brokenDirty = true;
+            }
         });
-        // yeni ust tabaka: kasik izi kapanir, tekrar kazinabilir
-        if (ScrapeMarks.I != null) ScrapeMarks.I.Erase(world, radius, amount);
+        if (ScrapeMarks.I != null) ScrapeMarks.I.Clear(world, radius);
     }
 
-    // Kirici vurusu: kabugu DELMEZ ve parcalamaz; ust tabakayi catlatip ufalar (broken 0..1).
-    // Yumusayan tabaka kaziyiciyla kazinir (ConsumeRubble); lav ancak kabuk kazinarak incelince acilir.
-    public MineResult Mine(Vector3 world, float radius = 0.6f, float power = 0.34f)
+    // Kirici vurusu: kabugu DELMEZ ve parcalamaz; vurdukca catlatir (broken 0..1). Tam kirilinca ust tabakadan
+    // 'depthLayers' kasik katmani kadar derinlik ufalanir (soft); kaziyici yalnizca bu derinlige kadar kazir.
+    // Ufalanan kisim kazinmadan tekrar kirilamaz; kazininca bir sonraki katman grubu kirilir.
+    public MineResult Mine(Vector3 world, float radius = 0.6f, float power = 0.34f, float depthLayers = 3f)
     {
-        Vector2 g = ToGrid(world);
-        if (Sample(crust, g) < 0.3f) return MineResult.None;       // kabuk yok: acik lav
-        float before = Sample(broken, g);
-        if (before >= 0.97f) return MineResult.AlreadySoft;
+        int c0 = CellIndex(world);
+        if (c0 < 0 || CrustAt(world) < 0.3f || crust[c0] < 0.3f) return MineResult.None;       // kabuk yok: acik lav
+        float depthB = depthLayers * LayerBytes;
+        // ufalanabilecek en derin nokta: hucrenin en derin kazinan yerinin 'depthLayers' alti (obsidyenin dibini asmaz).
+        // Ufalanan katmanlar kazinmadan daha derine inilemez.
+        if (soft[c0] >= Mathf.Min(UsableBytes(c0), cutMax[c0] + depthB) - 0.5f) return MineResult.AlreadySoft;
+        float before = broken[c0] >= 0.999f ? 0f : broken[c0];
         float add = power * 1.6f;
         Paint(world, radius, (i, w) =>
         {
             if (crust[i] < 0.3f) return;
+            float full = Mathf.Min(UsableBytes(i), cutMax[i] + depthB);
+            if (soft[i] >= full - 0.5f) return;                // bu derinlik zaten ufalandi
+            if (broken[i] >= 0.999f) broken[i] = 0f;            // kazinmis yerde yeni dongu: alttaki katmanlar
             broken[i] = Mathf.Min(1f, broken[i] + add * w);
-        });
+            float f = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.3f, 0.95f, broken[i]));
+            float target = Mathf.Min(full, cutMax[i] + depthB * f);
+            if (target > soft[i]) soft[i] = target;
+        }, false);
         brokenDirty = true;
-        // yeniden ufalanan yer tekrar kazinabilir: eski kazima izi kapanir
-        if (ScrapeMarks.I != null) ScrapeMarks.I.Erase(world, radius, add);
-        return before < 0.9f && Sample(broken, g) >= 0.9f ? MineResult.Broken : MineResult.Chipped;
+        return before < 0.9f && broken[c0] >= 0.9f ? MineResult.Broken : MineResult.Chipped;
     }
 
-    // Kaziyici a->b yolunda 'area' m2 (derinlik agirlikli) ufalanmis tabaka aldi: hucrelerden yumusak tabakayi
-    // ve kabuk kalinligini dus. Kabuk incelip 0.3 altina inerse orasi tekrar lav olur ve golun seviyesi duser.
-    // Dondurulen: lavin acildigi hucre var mi.
-    public bool ConsumeRubble(Vector3 a, Vector3 b, float halfW, float area)
+    // ScrapeMarks bir texeli oldB -> newB derinligine kazidi: hucrenin kazima hesabi, lav cekilmesi ve
+    // obsidyen bitince lavin acilmasi. Dondurulen: bu hucrede lav acildi mi.
+    public bool AddCut(Vector3 wp, int oldB, int newB, float areaRatio)
     {
-        if (area <= 0f) return false;
-        float cell = size / (res - 1);
-        float cellArea = cell * cell;
-        Vector3 c = (a + b) * 0.5f;
-        float len = new Vector2(b.x - a.x, b.z - a.z).magnitude;
-        float radius = Mathf.Max(halfW, len * 0.5f) + cell * 0.75f;
-        float wsum = 0f;
-        Paint(c, radius, (i, w) => { if (crust[i] >= 0.3f && broken[i] > 0.02f) wsum += w; });
-        if (wsum <= 0f) return false;
-        float removed = 0f; bool opened = false;
-        Paint(c, radius, (i, w) =>
+        int i = CellIndex(wp);
+        if (i < 0 || crust[i] < 0.3f) return false;
+        float d = (newB - oldB) * areaRatio;
+        cut[i] += d;
+        if (newB > cutMax[i]) cutMax[i] = newB;
+        pendingDrain += bedSum / Mathf.Max(1, breaksToEmpty) * (d / FullBytes * UsableDepth / CrustPerBreak);
+        // hucrenin cogu dibe kadar kazininca obsidyen biter: lav acilir
+        if (cut[i] >= UsableBytes(i) * 0.4f && cutMax[i] >= UsableBytes(i) - 1f)
         {
-            if (crust[i] < 0.3f || broken[i] <= 0.02f) return;
-            float frac = area * (w / wsum) / cellArea;
-            float db = Mathf.Min(broken[i], frac);
-            broken[i] -= db;
-            float dc = db * LayerDepth;
-            crust[i] -= dc;
-            removed += dc;
-            if (crust[i] < 0.3f) { removed += crust[i]; crust[i] = 0f; broken[i] = 0f; opened = true; }
-        });
-        brokenDirty = true;
-        pendingDrain += bedSum / Mathf.Max(1, breaksToEmpty) * (removed / CrustPerBreak);
-        activeTimer = 30f;
-        return opened;
+            crust[i] = 0f; cut[i] = 0f; cutMax[i] = 0f; soft[i] = 0f; broken[i] = 0f;
+            dirty = true; brokenDirty = true;
+            return true;
+        }
+        return false;
     }
 
     // Kasik/spatula: yalnizca ust tabakayi ince ince alir; kabuk 'floor' altina inmez (asla delmez, lav acilmaz).

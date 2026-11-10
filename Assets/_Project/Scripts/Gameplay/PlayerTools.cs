@@ -601,11 +601,33 @@ public class PlayerTools : MonoBehaviour
     // market icin: bicak genisligi (cm) ve agirlik (0..1)
     public static float ScraperWidthCm(int tier) { int t = Mathf.Clamp(tier, 0, ScrapeToolScale.Length - 1); return ScrapeToolShape.ForTier(t).halfWidth * 2f * ScrapeToolScale[t] * 100f; }
     public static float ScraperWeight(int tier) => ToolWeight[Mathf.Clamp(tier, 0, ToolWeight.Length - 1)];                                                          // kazima tozu (TorchSmoke)
-    const float GramsPerM2 = 420f;                              // tamamen kazinan 1 m2 kabuktan cikan kirinti
-    const float ChipsPerM2 = 380f;                              // gorunen pulcuk sayisi
-    const float MoneyPerGram = 0.03f;
+    const float GramsPerM2 = 1500f;                              // tamamen kazinan 1 m2 kabuktan cikan kirinti
+    const float ChipsPerM2 = 900f;                              // gorunen pulcuk sayisi
+    const float MoneyPerGram = 0.04f;
 
     public bool ScrapeActive => scrapeOn;
+    public float PassLayers => Economy.ToolPassLayers[Mathf.Clamp(Economy.ToolTier, 0, Economy.ToolPassLayers.Length - 1)];
+    // aletin altinda: kalan obsidyen (kasik katmani) ve ufalanmis kisimdan kalan surtme sayisi
+    public float LayersLeftHere
+    {
+        get
+        {
+            var f = LavaField.I;
+            if (f == null || !scrapeOn) return 0f;
+            float d = ScrapeMarks.I != null ? ScrapeMarks.I.DepthAt(scrapeFocus) : 0f;
+            return Mathf.Max(0f, (f.UsableBytesAt(scrapeFocus) - d) / LavaField.LayerBytes);
+        }
+    }
+    public float PassesLeftHere
+    {
+        get
+        {
+            var f = LavaField.I;
+            if (f == null || !scrapeOn) return 0f;
+            float d = ScrapeMarks.I != null ? ScrapeMarks.I.DepthAt(scrapeFocus) : 0f;
+            return Mathf.Max(0f, (f.ScrapeLimitBytes(scrapeFocus) - d) / (LavaField.LayerBytes * PassLayers));
+        }
+    }
     public bool Scooping => scoopT >= 0f;
     public float TipLoad => debris != null ? debris.TipLoadGrams : 0f;
     public float TipCapacity => ScoopCapacity[ScrapeTier];
@@ -757,12 +779,18 @@ public class PlayerTools : MonoBehaviour
         // Calisma alani: oyuncuya yakin bir halka, yalnizca lav golunun icinde
         Vector3 pp = player.transform.position;
         Vector3 d = new Vector3(np.x - pp.x, 0f, np.z - pp.z);
-        float maxR = reach - 0.3f, minR = 1.0f;
+        float maxR = reach - 0.3f, minR = 0.6f;
         if (d.magnitude > maxR) d = d.normalized * maxR;
         if (d.magnitude < minR) d = (d.sqrMagnitude > 1e-6f ? d.normalized : scrapeFwd) * minR;
         np = new Vector3(pp.x + d.x, 0f, pp.z + d.z);
         np.y = field.HeightAt(np);
-        if (!field.IsLava(np, 0.2f)) np = scrapeAim;
+        if (!field.IsLava(np, 0.2f))
+        {
+            // kiyida takilmasin: kenar boyunca kaysin (yalniz yanal ya da yalniz ileri bilesen)
+            Vector3 sx = scrapeAim + scrapeRight * (md.x * ScrapeMouseScale), sz = scrapeAim + scrapeFwd * (md.y * ScrapeMouseScale);
+            if (field.IsLava(sx, 0.2f)) np = sx; else if (field.IsLava(sz, 0.2f)) np = sz; else np = scrapeAim;
+            np.y = field.HeightAt(np);
+        }
         scrapeAim = np;
         // Agir alet (kurek) fareyi biraz geriden, yumusakca izler: agirlik hissi
         float follow = Mathf.Lerp(60f, 9f, ToolWeight[tierNow]);
@@ -785,7 +813,7 @@ public class PlayerTools : MonoBehaviour
             float cur = Mathf.Atan2(scrapeToolDir.x, scrapeToolDir.z) * Mathf.Rad2Deg;
             float want = Mathf.Atan2(vdir.x, vdir.z) * Mathf.Rad2Deg;
             float delta = Mathf.DeltaAngle(cur, want);
-            float maxRate = Mathf.Lerp(900f, 320f, ToolWeight[tierNow]) * Mathf.Clamp01(spd * 2.5f);
+            float maxRate = Mathf.Lerp(900f, 320f, ToolWeight[tierNow]) * Mathf.Clamp01(0.35f + spd * 3f);
             float stepA = Mathf.Clamp(delta * (1f - Mathf.Exp(-9f * dt)), -maxRate * dt, maxRate * dt);
             cur += stepA;
             scrapeToolDir = new Vector3(Mathf.Sin(cur * Mathf.Deg2Rad), 0f, Mathf.Cos(cur * Mathf.Deg2Rad));
@@ -794,7 +822,7 @@ public class PlayerTools : MonoBehaviour
             scrapeRoll = Mathf.Lerp(scrapeRoll, Mathf.Clamp(stepA / Mathf.Max(dt, 1e-4f) * 0.035f, -14f, 14f), 1f - Mathf.Exp(-8f * dt));
         }
         else scrapeRoll = Mathf.Lerp(scrapeRoll, 0f, 1f - Mathf.Exp(-6f * dt));
-        float drive = sf * align * align;
+        float drive = sf * Mathf.Lerp(0.35f, 1f, align * align);
 
         // Kamera: noktanin hemen ustunde, neredeyse tepeden bakar; yumusakca takip eder
         scrapeCamFocus = Vector3.Lerp(scrapeCamFocus, scrapeFocus, 1f - Mathf.Exp(-8f * dt));
@@ -853,9 +881,10 @@ public class PlayerTools : MonoBehaviour
         float hl = Mathf.Min(hw * 0.8f, 0.012f + 0.012f * tiltT);
         Vector3 from = hasStamp ? lastStamp : contact;
         lastStamp = contact; hasStamp = true;
-        float strength = drive * Mathf.Lerp(0.38f, 0.8f, tiltT);
-        if (strength < 0.02f) return;
-        float area = ScrapeMarks.Ensure().Stamp(from, contact, lateral, head, hw, hl, strength, field);
+        if (drive < 0.03f) return;
+        // bir surtme = aletin katman kalinligi (dik tutunca biraz daha derin); yola gore ScrapeMarks olcekler
+        float passBytes = LavaField.LayerBytes * PassLayers;
+        float area = ScrapeMarks.Ensure().Stamp(from, contact, lateral, head, hw, hl, passBytes, field);
         if (area <= 1e-7f)
         {
             if (drive > 0.25f)
@@ -863,15 +892,15 @@ public class PlayerTools : MonoBehaviour
                 noScrapeT += dt;
                 if (noScrapeT > 0.7f && Hint == "")
                     SetHint(field.CrustAt(contact) < 0.3f ? "Burada kabuk yok - once lavi suyla (1) sogut"
-                          : field.BrokenAt(contact) < 0.06f ? "Burasi kirilmamis - once kirici (4) ile kir, sonra kazi"
-                          : "Burasi kazindi - kirici (4) ile tekrar kir", 1.4f);
+                          : field.SoftBytesAt(contact) < 1f ? "Burasi kirilmamis - once kirici (4) ile kir, sonra kazi"
+                          : "Ufalanan katmanlar bitti - kirici (4) ile tekrar kir", 1.4f);
             }
             return;
         }
         noScrapeT = 0f;
-        // ufalanmis tabaka alinir: kabuk incelir; tamamen incelince lav acilir ve golun seviyesi duser
-        if (field.ConsumeRubble(from, contact, hw, area))
-            SetHint("Kabuk bitti, lav acildi - suyla (1) tekrar sogut", 1.6f);
+        // obsidyen katmanlari bitince lav acilir (golun seviyesi kazindikca duser)
+        if (field.CrustAt(contact) < 0.3f && Hint == "")
+            SetHint("Obsidyen bitti, lav acildi - suyla (1) tekrar sogut", 1.6f);
         coreGrams += area * GramsPerM2;
         float coreEvery = 220f / Mathf.Max(1, Economy.BreakerCores(Mathf.Max(1, Economy.BreakerTierNow)));
         if (coreGrams >= coreEvery) { coreGrams -= coreEvery; RevealCore(contact, head, hl); }
@@ -1161,7 +1190,8 @@ public class PlayerTools : MonoBehaviour
         player.Shake(0.02f, 0.12f);
         int earn = Economy.I != null ? Economy.BreakerMoney(Economy.BreakerTierNow) : 0;
         if (earn > 0) Economy.I.Earn(earn);
-        SetHint(earn > 0 ? $"+{earn} para  |  Ufalandi - kaziyici (3) ile kazi" : "Ufalandi - kaziyici (3) ile kazi", 1.4f);
+        int passes = Mathf.Max(1, Mathf.RoundToInt(Economy.BreakLayers(Economy.BreakerTierNow) / PassLayers));
+        SetHint((earn > 0 ? $"+{earn} para  |  " : "") + $"Ufalandi: {ToolName} ile {passes} surtmelik katman", 1.6f);
     }
 
     // Kirilan yerde alcak, yayilan toz bulutu (parca sacilmaz)
@@ -1263,7 +1293,7 @@ public class PlayerTools : MonoBehaviour
         p += new Vector3(j.x, 0f, j.y);
         p.y = field.HeightAt(p);
         if (!field.IsLava(p, 1.0f)) { if (Hint == "") SetHint("Burada kazacak bir sey yok", 0.8f); return; }
-        switch (field.Mine(p, Economy.BreakerRadius(t), Economy.BreakerPower(t)))
+        switch (field.Mine(p, Economy.BreakerRadius(t), Economy.BreakerPower(t), Economy.BreakLayers(t)))
         {
             case MineResult.None:
                 if (Hint == "") SetHint(field.DigAt(p) > 0.97f ? "Ana kayaya ulastin" : "Once lavi suyla (1) sogut", 0.8f);
@@ -1366,7 +1396,7 @@ public class PlayerTools : MonoBehaviour
             if (!field.IsLava(p, 1.5f)) { SetHint("Burada kazacak bir sey yok"); }
             else
             {
-                switch (field.Mine(p, Economy.BreakerRadius(t), Economy.BreakerPower(t)))
+                switch (field.Mine(p, Economy.BreakerRadius(t), Economy.BreakerPower(t), Economy.BreakLayers(t)))
                 {
                     case MineResult.None:
                         SetHint(field.DigAt(p) > 0.97f ? "Ana kayaya ulastin" : "Once lavi suyla (1) sogut");
@@ -1380,7 +1410,7 @@ public class PlayerTools : MonoBehaviour
                     case MineResult.AlreadySoft:
                         CrumbleDust(p, 0.3f);
                         SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.pickaxeHit : null, p, 0.5f, 0.7f);
-                        SetHint("Burasi zaten ufalandi - kaziyici (3) ile kazi", 1.4f);
+                        SetHint("Ufalanan katman kazinmadan derine kirilmaz - kaziyici (3) ile kazi", 1.6f);
                         break;
                     case MineResult.Broken:
                         OnObsidianBroken(p);

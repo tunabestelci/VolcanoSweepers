@@ -76,6 +76,11 @@ public class Hud : MonoBehaviour
             var meter = new GUIStyle(big) { alignment = TextAnchor.MiddleLeft };
             GUI.Label(new Rect(bx + bw + pad * 0.6f, by + bh * 0.25f, w * 0.5f, bh * 0.5f),
                 $"{tools.ToolName.ToUpper()} UCU  {load:F0} / {cap:F0} g", meter);
+            float left = tools.LayersLeftHere, passes = tools.PassesLeftHere;
+            var sub = new GUIStyle(label) { alignment = TextAnchor.MiddleLeft };
+            sub.normal.textColor = passes >= 0.5f ? new Color(0.85f, 0.95f, 0.8f) : new Color(1f, 0.7f, 0.45f);
+            GUI.Label(new Rect(bx + bw + pad * 0.6f, by + bh * 0.72f, w * 0.6f, bh * 0.4f),
+                $"Obsidyen: {Mathf.CeilToInt(left - 0.05f)} kasik katmani  |  Ufalanmis: {Mathf.CeilToInt(passes - 0.1f)} surtme" + (passes < 0.5f && left > 0.3f ? "  > kirici (4) ile kir" : ""), sub);
         }
 
         // Ipucu

@@ -30,6 +30,8 @@ public class Economy : MonoBehaviour
     public static readonly int[] ToolPrice = { 0, 40, 110, 280, 650, 1400 };
     // kepceye bir seferde sigan kirinti (gram) - market kartinda da gosterilir
     public static readonly float[] ToolScoopGrams = { 100f, 160f, 260f, 400f, 600f, 950f };
+    // bir surtmede alinan kalinlik (kasik katmani; suyla olusan tam obsidyen = 9 kasik katmani)
+    public static readonly float[] ToolPassLayers = { 1f, 1.25f, 1.5f, 2f, 2.25f, 3f };
 
     // ---------- Kiricilar ----------
     public enum BreakerKind { Hammer, Drill, Jackhammer }
@@ -82,6 +84,16 @@ public class Economy : MonoBehaviour
         if (t <= 8) return new[] { 1f, 0.95f, 0.9f, 0.9f, 0.85f, 1.15f, 1.1f, 1.15f, 1.05f }[t];
         if (t <= 16) return 0.075f;
         return 0.06f;
+    }
+
+    // Bir tam kirilista ufalanan derinlik (kasik katmani): cekic 3 (= kasikla 3 surtme), balyoz 4.5, matkap 6-7.5, kirici 9 (hepsi)
+    public static float BreakLayers(int t)
+    {
+        if (t <= 4) return 3f;
+        if (t <= 8) return 4.5f;
+        if (t <= 12) return 6f;
+        if (t <= 16) return 7.5f;
+        return 9f;
     }
 
     public static int BreakerMoney(int t) => t <= 0 ? 1 : 2 + t;                        // kirilan obsidyen basina

@@ -381,6 +381,87 @@ public class BreakerTest : MonoBehaviour
             yield return Shot("loop_7_cycles");
         }
 
+        // Katmanlar: kir (3 katman) > 3 surtme > 4. surtme bos > tekrar kir ... 9 katmanda lav acilir
+        if (mode == "layers")
+        {
+            Log($"start loadout: tool={eco.toolTier} breaker={eco.breakerTier} passLayers={tools.PassLayers} breakLayers={Economy.BreakLayers(eco.breakerTier)}");
+            var fFocus = typeof(PlayerTools).GetField("scrapeFocus", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var fFwd = typeof(PlayerTools).GetField("scrapeFwd", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Vector3 p = Vector3.zero;
+            for (int attempt = 0; attempt < 12; attempt++)
+            {
+                p = Stage();
+                yield return new WaitForSeconds(0.6f);
+                player.LookAt(p);
+                yield return new WaitForSeconds(0.2f);
+                var ray = new Ray(player.cam.transform.position, player.cam.transform.forward);
+                if (field.Raycast(ray, tools.reach, out var hp) && field.IsLava(hp, 1.5f) && (hp - p).magnitude < 0.6f) break;
+                Log($"stage attempt {attempt} unreachable");
+            }
+            field.AddCrust(p, 4.5f, 1f); field.AddCrust(p, 3.0f, 1f);
+            yield return new WaitForSeconds(0.3f);
+            Vector3 fwd = player.transform.forward; fwd.y = 0f; fwd.Normalize();
+            float ftMax = 0f, ftSum = 0f; int ftN = 0;
+            int strokeTotal = 0;
+            for (int cycle = 0; cycle < 4 && field.CrustAt(p + fwd * 0.12f) >= 0.3f; cycle++)
+            {
+                // kir: 3 noktaya ikiser vurus (surtme cizgisi boyunca)
+                tools.DoEquip(Tool.Breaker);
+                yield return new WaitForSeconds(0.4f);
+                for (int k = 0; k < 6; k++)
+                {
+                    Vector3 hpnt = p + fwd * (0.12f * (k % 3));
+                    player.LookAt(hpnt);
+                    yield return new WaitForSeconds(0.15f);
+                    tools.DoSwing();
+                    yield return new WaitForSeconds(0.9f);
+                }
+                if (cycle == 0) yield return Shot("layers_broken");
+                Log($"cycle {cycle} break: hint='{tools.Hint}' soft@mid={field.SoftBytesAt(p + fwd * 0.12f) / LavaField.LayerBytes:F2} layers, usable={field.UsableBytesAt(p + fwd * 0.12f) / LavaField.LayerBytes:F2}");
+                // fazladan vurus: ufalanmis kazinmadan derine kirilmamali
+                if (cycle == 0)
+                {
+                    float sb = field.SoftBytesAt(p + fwd * 0.12f);
+                    player.LookAt(p + fwd * 0.12f); yield return new WaitForSeconds(0.15f);
+                    tools.DoSwing(); yield return new WaitForSeconds(0.9f);
+                    Log($"  extra hit: soft {sb / LavaField.LayerBytes:F2} -> {field.SoftBytesAt(p + fwd * 0.12f) / LavaField.LayerBytes:F2}, hint='{tools.Hint}'");
+                }
+                // kazi: 4 surtme, her biri ayni cizgide
+                tools.DoEquip(Tool.Scraper);
+                yield return new WaitForSeconds(0.3f);
+                Vector3 rgt = Vector3.Cross(Vector3.up, fwd);
+                for (int st = 0; st < 12; st++)
+                {
+                    player.LookAt(p + rgt * (0.07f * (st % 3 - 1)));
+                    yield return new WaitForSeconds(0.25f);
+                    tools.botHoldScrape = true;
+                    yield return new WaitForSeconds(0.45f);
+                    Vector3 a0 = (Vector3)fFocus.GetValue(tools);
+                    float passes0 = tools.PassesLeftHere, left0 = tools.LayersLeftHere;
+                    float ts = Time.time;
+                    while (Time.time - ts < 0.42f)
+                    {
+                        tools.botScrapeDelta = new Vector2(0f, 4f);
+                        ftSum += Time.unscaledDeltaTime; ftN++; ftMax = Mathf.Max(ftMax, Time.unscaledDeltaTime);
+                        yield return null;
+                    }
+                    tools.botScrapeDelta = Vector2.zero;
+                    yield return new WaitForSeconds(0.1f);
+                    Vector3 a1 = (Vector3)fFocus.GetValue(tools);
+                    float load = tools.TipLoad;
+                    if (cycle == 0 && st == 4) yield return Shot("layers_stroke2");
+                    if (cycle == 1 && st == 7) yield return Shot("layers_cycle1");
+                    tools.botHoldScrape = false;
+                    yield return new WaitForSeconds(1.3f);
+                    strokeTotal++;
+                    if (st % 3 == 2 || st >= 9) Log($"  stroke {st / 3}.{st % 3}: len={(a1 - a0).magnitude:F2} m grams={load:F1} (before: passesLeft={passes0:F2} layersLeft={left0:F2}) money={eco.money} hint='{tools.Hint}' crust@mid={field.CrustAt(p + fwd * 0.12f):F2}");
+                }
+            }
+            Log($"end: crust@mid={field.CrustAt(p + fwd * 0.12f):F2} crust@p={field.CrustAt(p):F2} isLava@mid={field.CrustAt(p + fwd * 0.12f) < 0.3f}");
+            Log($"frames during strokes: avg {ftSum / Mathf.Max(1, ftN) * 1000f:F1} ms max {ftMax * 1000f:F1} ms; lavaLevel={field.LavaLevel:F3}");
+            yield return Shot("layers_end");
+        }
+
         if (mode == "shop" || mode == "all")
         {
             eco.Earn(2000);

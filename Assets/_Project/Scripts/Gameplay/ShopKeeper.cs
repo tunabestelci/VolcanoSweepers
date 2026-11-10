@@ -486,8 +486,9 @@ public class ShopKeeper : MonoBehaviour
             float maxG = Economy.ToolScoopGrams[Economy.ToolScoopGrams.Length - 1];
             l.Add(new Stat { label = "Bicak genisligi", value = $"{W(t):F0} cm", frac = W(t) / maxW, ownedFrac = W(have) / maxW });
             l.Add(new Stat { label = "Kepce kapasitesi", value = $"{Economy.ToolScoopGrams[t]:F0} g", frac = Economy.ToolScoopGrams[t] / maxG, ownedFrac = Economy.ToolScoopGrams[have] / maxG });
-            float wt = PlayerTools.ScraperWeight(t);
-            l.Add(new Stat { label = "Agirlik", value = wt < 0.1f ? "hafif" : wt < 0.35f ? "orta" : "agir", frac = 0.15f + wt, ownedFrac = 0.15f + PlayerTools.ScraperWeight(have) });
+            float maxL = Economy.ToolPassLayers[Economy.ToolPassLayers.Length - 1];
+            float pl = Economy.ToolPassLayers[t];
+            l.Add(new Stat { label = "Surtme basina katman", value = $"{pl:0.##} ({Mathf.CeilToInt(9f / pl - 0.01f)} surtmede biter)", frac = pl / maxL, ownedFrac = Economy.ToolPassLayers[have] / maxL });
         }
         else if (c == Cat.Breaker)
         {
@@ -495,7 +496,7 @@ public class ShopKeeper : MonoBehaviour
             l.Add(new Stat { label = "Etki alani", value = $"{Economy.BreakerRadius(t):F2} m", frac = Economy.BreakerRadius(t) / maxR, ownedFrac = have > 0 ? Economy.BreakerRadius(have) / maxR : 0f });
             float Pw(int k) => Economy.KindOf(k) == Economy.BreakerKind.Hammer ? Economy.BreakerPower(k) : Economy.BreakerPower(k) / Economy.BreakerTempo(k) * 0.08f;
             float maxP = Pw(Economy.BreakerCount);
-            l.Add(new Stat { label = "Kirma gucu", value = Economy.KindOf(t) == Economy.BreakerKind.Hammer ? "vurus" : "surekli", frac = Pw(t) / maxP, ownedFrac = have > 0 ? Pw(have) / maxP : 0f });
+            l.Add(new Stat { label = "Kirma derinligi", value = $"{Economy.BreakLayers(t):0.#} katman ({Mathf.CeilToInt(9f / Economy.BreakLayers(t) - 0.01f)} kirista biter)", frac = Economy.BreakLayers(t) / 9f, ownedFrac = have > 0 ? Economy.BreakLayers(have) / 9f : 0f });
             l.Add(new Stat { label = "Kirilan basina para", value = $"+{Economy.BreakerMoney(t)}", frac = Economy.BreakerMoney(t) / maxM, ownedFrac = have > 0 ? Economy.BreakerMoney(have) / maxM : 0f });
         }
         else
