@@ -97,7 +97,7 @@ public class ScrapeMarks : MonoBehaviour
     }
 
     // Bicak ayak izini a->b yolu boyunca supurur. lateral: bicagin yatay ekseni, head: bicak normali (yatay).
-    // Iz, bu karedeki tum ara damgalarin en buyugu kadar derinlesir (hiza bagli degil), yalnizca kabuk olan yerde.
+    // Iz, bu karedeki tum ara damgalarin en buyugu kadar derinlesir (hiza bagli degil), yalnizca kirilmis kabukta.
     // Dondurulen: kazinan alan (m^2, derinlik agirlikli).
     public float Stamp(Vector3 a, Vector3 b, Vector3 lateral, Vector3 head, float halfW, float halfL, float strength, LavaField field)
     {
@@ -147,7 +147,8 @@ public class ScrapeMarks : MonoBehaviour
                 float cov = tmp[(gy - y0) * w + (gx - x0)];
                 if (cov <= 0.001f) continue;
                 Vector3 wp = TexelCenter(gx, gy);
-                float crustF = field != null ? Mathf.InverseLerp(0.42f, 0.7f, field.CrustAt(wp)) : 1f;
+                // yalnizca kirici ile ufalanmis kabuk kazinir
+                float crustF = field != null ? field.ScrapeableAt(wp) : 1f;
                 if (crustF <= 0f) continue;
                 int tx = gx / Tile;
                 var t = GetTile(tx, ty, true);

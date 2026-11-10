@@ -3,7 +3,7 @@ using Unity.Collections;
 using Unity.Jobs;
 using UnityEngine;
 
-public enum MineResult { None, Chipped, Broken }
+public enum MineResult { None, Chipped, Broken, AlreadySoft }
 
 // Kraterin agzina kadar dolu, akiskan lav golu. CPU'da uc katman tutar:
 //   crust: lavin ustundeki obsidyen kabugu (0..1)
@@ -41,6 +41,13 @@ public class LavaField : MonoBehaviour
     NativeArray<byte> basin;
     NativeArray<byte> basinSoft;
     NativeArray<Unity.Mathematics.half4> packed;
+    // kirici ile yumusatilmis (ufalanmis) ust tabaka 0..1: yalnizca burasi kaziyiciyla kazinir
+    NativeArray<float> broken;
+    NativeArray<byte> brokenPacked;
+    Texture2D brokenTex;
+    bool brokenDirty;
+    const float LayerDepth = 0.3f;        // bir tam kazima gecisinin kabuktan aldigi kalinlik (kabuk 0..1)
+    const float CrustPerBreak = 16f;      // eski "bir kirilis" hacmi (kabuk birimi): lav cekilmesi bununla olceklenir
     int basinCount;
     Texture2D maskTex;
     bool dirty;
@@ -75,6 +82,8 @@ public class LavaField : MonoBehaviour
         basin = new NativeArray<byte>(n2, Allocator.Persistent);
         basinSoft = new NativeArray<byte>(n2, Allocator.Persistent);
         packed = new NativeArray<Unity.Mathematics.half4>(n2, Allocator.Persistent);
+        broken = new NativeArray<float>(n2, Allocator.Persistent);
+        brokenPacked = new NativeArray<byte>(n2, Allocator.Persistent);
         if (basinData != null)
         {
             var bytes = basinData.bytes;
@@ -92,6 +101,9 @@ public class LavaField : MonoBehaviour
         };
         matInstance = new Material(material);
         matInstance.SetTexture("_Mask", maskTex);
+        brokenTex = new Texture2D(res, res, TextureFormat.R8, false, true) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
+        matInstance.SetTexture("_Broken", brokenTex);
+        brokenDirty = true;
         matInstance.SetFloat("_FieldSize", size);
         matInstance.SetFloat("_CrustHeight", crustHeight);
         matInstance.SetFloat("_DigDepth", digDepth);
@@ -110,6 +122,8 @@ public class LavaField : MonoBehaviour
         if (basin.IsCreated) basin.Dispose();
         if (basinSoft.IsCreated) basinSoft.Dispose();
         if (packed.IsCreated) packed.Dispose();
+        if (broken.IsCreated) broken.Dispose();
+        if (brokenPacked.IsCreated) brokenPacked.Dispose();
     }
 
     Mesh BuildMesh()
@@ -272,6 +286,14 @@ public class LavaField : MonoBehaviour
         }
     }
 
+    [BurstCompile]
+    struct PackBrokenJob : IJobParallelFor
+    {
+        [ReadOnly] public NativeArray<float> src;
+        public NativeArray<byte> outp;
+        public void Execute(int i) { outp[i] = (byte)Unity.Mathematics.math.clamp((int)(src[i] * 255f + 0.5f), 0, 255); }
+    }
+
     void RefreshStats()
     {
         var o = new NativeArray<float>(2, Allocator.TempJob);
@@ -321,6 +343,13 @@ public class LavaField : MonoBehaviour
         maskTex.SetPixelData(packed, 0);
         maskTex.Apply(false);
         dirty = false;
+        if (brokenDirty)
+        {
+            new PackBrokenJob { src = broken, outp = brokenPacked }.Schedule(res * res, 8192).Complete();
+            brokenTex.SetPixelData(brokenPacked, 0);
+            brokenTex.Apply(false);
+            brokenDirty = false;
+        }
     }
 
     // ---------- Koordinat ----------
@@ -345,6 +374,15 @@ public class LavaField : MonoBehaviour
 
     public float CrustAt(Vector3 world) { return Sample(crust, ToGrid(world)); }
     public float DigAt(Vector3 world) { return Sample(dig, ToGrid(world)); }
+    public float BrokenAt(Vector3 world) { return Sample(broken, ToGrid(world)); }
+
+    // Kaziyici burada ne kadar alabilir (0..1): kabuk olmali ve kirici ile yumusatilmis olmali
+    public float ScrapeableAt(Vector3 world)
+    {
+        Vector2 g = ToGrid(world);
+        if (Sample(crust, g) < 0.3f) return 0f;
+        return Mathf.InverseLerp(0.06f, 0.45f, Sample(broken, g));
+    }
 
     // Bu noktadaki lav derinligi (0..1 olcek)
     float DepthN(Vector2 g) { return Sample(bed, g) - Sample(dig, g); }
@@ -447,28 +485,62 @@ public class LavaField : MonoBehaviour
         {
             if (bed[i] - dig[i] < 0.03f) return;      // kuru/cok sigi: kabuk olusmaz
             crust[i] = Mathf.Min(1f, crust[i] + amount * w);
+            if (broken[i] > 0f) { broken[i] = Mathf.Max(0f, broken[i] - amount * w * 1.5f); brokenDirty = true; }
         });
         // yeni ust tabaka: kasik izi kapanir, tekrar kazinabilir
         if (ScrapeMarks.I != null) ScrapeMarks.I.Erase(world, radius, amount);
     }
 
-    // Kazma vurusu: kabugu yipratir; kirilinca obsidyen alinir, cukur acilir ve golun hacminden dusulur
+    // Kirici vurusu: kabugu DELMEZ ve parcalamaz; ust tabakayi catlatip ufalar (broken 0..1).
+    // Yumusayan tabaka kaziyiciyla kazinir (ConsumeRubble); lav ancak kabuk kazinarak incelince acilir.
     public MineResult Mine(Vector3 world, float radius = 0.6f, float power = 0.34f)
     {
-        float center = CrustAt(world);
-        if (center < 0.3f) return MineResult.None;       // kabuk yok: acik lav (0.3 altinda yuzey katilasmaz)
-        Paint(world, radius, (i, w) => crust[i] = Mathf.Max(0f, crust[i] - power * w));
-        if (CrustAt(world) >= 0.3f) return MineResult.Chipped;
-
-        Paint(world, radius * 1.15f, (i, w) =>
+        Vector2 g = ToGrid(world);
+        if (Sample(crust, g) < 0.3f) return MineResult.None;       // kabuk yok: acik lav
+        float before = Sample(broken, g);
+        if (before >= 0.97f) return MineResult.AlreadySoft;
+        float add = power * 1.6f;
+        Paint(world, radius, (i, w) =>
         {
-            crust[i] = Mathf.Max(0f, crust[i] - w * 1.2f);
-            dig[i] = Mathf.Min(bed[i], dig[i] + digStep * 0.6f * w);     // gecici cukur: komsu lav doldurur
+            if (crust[i] < 0.3f) return;
+            broken[i] = Mathf.Min(1f, broken[i] + add * w);
         });
-        if (ScrapeMarks.I != null) ScrapeMarks.I.Erase(world, radius * 1.15f, 1f);
-        pendingDrain += bedSum / Mathf.Max(1, breaksToEmpty) * Mathf.Clamp((radius * radius) / (0.6f * 0.6f), 0.15f, 1f);              // kalici hacim kaybi: tum goldeki seviye duser
+        brokenDirty = true;
+        // yeniden ufalanan yer tekrar kazinabilir: eski kazima izi kapanir
+        if (ScrapeMarks.I != null) ScrapeMarks.I.Erase(world, radius, add);
+        return before < 0.9f && Sample(broken, g) >= 0.9f ? MineResult.Broken : MineResult.Chipped;
+    }
+
+    // Kaziyici a->b yolunda 'area' m2 (derinlik agirlikli) ufalanmis tabaka aldi: hucrelerden yumusak tabakayi
+    // ve kabuk kalinligini dus. Kabuk incelip 0.3 altina inerse orasi tekrar lav olur ve golun seviyesi duser.
+    // Dondurulen: lavin acildigi hucre var mi.
+    public bool ConsumeRubble(Vector3 a, Vector3 b, float halfW, float area)
+    {
+        if (area <= 0f) return false;
+        float cell = size / (res - 1);
+        float cellArea = cell * cell;
+        Vector3 c = (a + b) * 0.5f;
+        float len = new Vector2(b.x - a.x, b.z - a.z).magnitude;
+        float radius = Mathf.Max(halfW, len * 0.5f) + cell * 0.75f;
+        float wsum = 0f;
+        Paint(c, radius, (i, w) => { if (crust[i] >= 0.3f && broken[i] > 0.02f) wsum += w; });
+        if (wsum <= 0f) return false;
+        float removed = 0f; bool opened = false;
+        Paint(c, radius, (i, w) =>
+        {
+            if (crust[i] < 0.3f || broken[i] <= 0.02f) return;
+            float frac = area * (w / wsum) / cellArea;
+            float db = Mathf.Min(broken[i], frac);
+            broken[i] -= db;
+            float dc = db * LayerDepth;
+            crust[i] -= dc;
+            removed += dc;
+            if (crust[i] < 0.3f) { removed += crust[i]; crust[i] = 0f; broken[i] = 0f; opened = true; }
+        });
+        brokenDirty = true;
+        pendingDrain += bedSum / Mathf.Max(1, breaksToEmpty) * (removed / CrustPerBreak);
         activeTimer = 30f;
-        return MineResult.Broken;
+        return opened;
     }
 
     // Kasik/spatula: yalnizca ust tabakayi ince ince alir; kabuk 'floor' altina inmez (asla delmez, lav acilmaz).

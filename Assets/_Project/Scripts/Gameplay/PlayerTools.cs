@@ -64,7 +64,11 @@ public class PlayerTools : MonoBehaviour
         Equip(Tool.Buckets);
     }
 
-    void Start() { RefreshLoadout(); }       // Economy hazir olduktan sonra dogru kademeyle yeniden kur
+    void Start()
+    {
+        RefreshLoadout();
+        SetHint("Lavi suyla sogut (1)  >  kirici ile kir (4)  >  kaziyici ile kazi (3)", 7f);
+    }       // Economy hazir olduktan sonra dogru kademeyle yeniden kur
 
     // Eller govdeye bagli: kovalar yanlarda asagida asili durur, bakinca/kullaninca one gelir
     Hand MakeHand(Transform root, float side)
@@ -619,7 +623,7 @@ public class PlayerTools : MonoBehaviour
     ScrapeToolShape toolShape;
     float toolScale = 1.5f;
     float scrapeTilt = 38f;                     // fare tekerlegi: alet acisi (yatik = genis ve hafif, dik = dar ve derin)
-    float toolTiltNow, pressDip, backLift;
+    float toolTiltNow, pressDip, backLift, scrapeRoll, coreGrams;
     float chipBudget, gramsBudget, moneyAcc, tickT;
     Vector3 lastStamp, scrapeVel; bool hasStamp;
     Vector3 lockCamPos; Quaternion lockCamRot;
@@ -697,7 +701,10 @@ public class PlayerTools : MonoBehaviour
         debris.onGramsDelivered = OnChipsDelivered;
         debris.onCoreDelivered = OnCoreDelivered;
         PlaceScrapeTool(scrapeFocus, scrapeToolDir, toolTiltNow, 0.01f);
-        SetHint($"Fareyle sur: kirintilar {ToolName} ucunda birikir  |  Birak: topla  |  Tekerlek: aci", 3.2f);
+        if (field.CrustAt(p) >= 0.3f && field.BrokenAt(p) < 0.06f)
+            SetHint("Burasi kirilmamis - once kirici (4) ile kir, sonra kazi", 2.4f);
+        else
+            SetHint($"Fareyle sur (her yone): kirintilar {ToolName} ucunda birikir  |  Birak: topla  |  Tekerlek: aci", 3.2f);
     }
 
     // Kilidi ve aleti kaldir; tasinan kirintilar varsa aninda teslim edilir
@@ -725,7 +732,7 @@ public class PlayerTools : MonoBehaviour
         if (scrapeTool == null) return;
         float a = tilt * Mathf.Deg2Rad;
         Vector3 tdir = head * Mathf.Cos(a) + Vector3.down * Mathf.Sin(a);
-        Quaternion rot = Quaternion.LookRotation(tdir, Vector3.up);
+        Quaternion rot = Quaternion.LookRotation(tdir, Vector3.up) * Quaternion.Euler(0f, 0f, scoopT < 0f ? scrapeRoll : 0f);
         Vector3 pos = contact + Vector3.up * lift - rot * (toolShape.contact * toolScale);
         scrapeTool.transform.SetPositionAndRotation(pos, rot);
         if (debris != null) debris.SetTool(scoopT < 0f, pos, rot, toolScale, toolShape, TipCapacity, ChipR[ScrapeTier], CoreRoom());
@@ -768,23 +775,25 @@ public class PlayerTools : MonoBehaviour
         float spd = mv.magnitude / dt;
         scrapeSpeed = Mathf.Lerp(scrapeSpeed, spd, 1f - Mathf.Exp(-12f * dt));
         float sf = Mathf.Clamp01(scrapeSpeed / 1.0f);
-        // Alet itme yonune doner (en fazla +-80 derece: sap hep oyuncuya bakar). Geri cekerken ucu kalkar, kazimaz:
-        // gercek kasik gibi yalnizca ucu ileri giderken alir.
+        // Alet surme yonune doner (360 derece): kasik nereye surulurse ucu o yone bakar, sap arkasinda kalir.
+        // Yon, yumusatilmis hizdan alinir (fare titremesi aleti oynatmaz); agir aletler daha yavas doner.
         float align = 0f;
-        if (mv.sqrMagnitude > 1e-8f)
+        Vector3 vdir = new Vector3(scrapeVel.x, 0f, scrapeVel.z);
+        if (vdir.magnitude > 0.025f && mv.sqrMagnitude > 1e-8f)
         {
-            Vector3 mdir = mv.normalized;
-            align = Mathf.Clamp01(Vector3.Dot(mdir, scrapeToolDir));
-            Vector3 want = mdir;
-            float fwdDot = Vector3.Dot(want, scrapeFwd);
-            if (fwdDot < 0.17f)
-            {
-                float side = Vector3.Dot(want, scrapeRight) >= 0f ? 1f : -1f;
-                want = fwdDot < -0.5f ? scrapeToolDir : (scrapeFwd * 0.17f + scrapeRight * side * 0.985f).normalized;
-            }
-            scrapeToolDir = Vector3.Slerp(scrapeToolDir, want, 1f - Mathf.Exp(-6f * dt * Mathf.Clamp01(spd * 4f)));
-            scrapeToolDir.y = 0f; scrapeToolDir.Normalize();
+            vdir.Normalize();
+            float cur = Mathf.Atan2(scrapeToolDir.x, scrapeToolDir.z) * Mathf.Rad2Deg;
+            float want = Mathf.Atan2(vdir.x, vdir.z) * Mathf.Rad2Deg;
+            float delta = Mathf.DeltaAngle(cur, want);
+            float maxRate = Mathf.Lerp(900f, 320f, ToolWeight[tierNow]) * Mathf.Clamp01(spd * 2.5f);
+            float stepA = Mathf.Clamp(delta * (1f - Mathf.Exp(-9f * dt)), -maxRate * dt, maxRate * dt);
+            cur += stepA;
+            scrapeToolDir = new Vector3(Mathf.Sin(cur * Mathf.Deg2Rad), 0f, Mathf.Cos(cur * Mathf.Deg2Rad));
+            align = Mathf.Clamp01(Vector3.Dot(mv.normalized, scrapeToolDir));
+            // donerken alet hafifce yana yatar (bilek hareketi)
+            scrapeRoll = Mathf.Lerp(scrapeRoll, Mathf.Clamp(stepA / Mathf.Max(dt, 1e-4f) * 0.035f, -14f, 14f), 1f - Mathf.Exp(-8f * dt));
         }
+        else scrapeRoll = Mathf.Lerp(scrapeRoll, 0f, 1f - Mathf.Exp(-6f * dt));
         float drive = sf * align * align;
 
         // Kamera: noktanin hemen ustunde, neredeyse tepeden bakar; yumusakca takip eder
@@ -853,11 +862,19 @@ public class PlayerTools : MonoBehaviour
             {
                 noScrapeT += dt;
                 if (noScrapeT > 0.7f && Hint == "")
-                    SetHint(field.CrustAt(contact) < 0.42f ? "Burada kabuk yok - once lavi suyla sogut" : "Burasi kazindi - yeni kabuga gec ya da kirici ile kir", 1.4f);
+                    SetHint(field.CrustAt(contact) < 0.3f ? "Burada kabuk yok - once lavi suyla (1) sogut"
+                          : field.BrokenAt(contact) < 0.06f ? "Burasi kirilmamis - once kirici (4) ile kir, sonra kazi"
+                          : "Burasi kazindi - kirici (4) ile tekrar kir", 1.4f);
             }
             return;
         }
         noScrapeT = 0f;
+        // ufalanmis tabaka alinir: kabuk incelir; tamamen incelince lav acilir ve golun seviyesi duser
+        if (field.ConsumeRubble(from, contact, hw, area))
+            SetHint("Kabuk bitti, lav acildi - suyla (1) tekrar sogut", 1.6f);
+        coreGrams += area * GramsPerM2;
+        float coreEvery = 220f / Mathf.Max(1, Economy.BreakerCores(Mathf.Max(1, Economy.BreakerTierNow)));
+        if (coreGrams >= coreEvery) { coreGrams -= coreEvery; RevealCore(contact, head, hl); }
         gramsBudget += area * GramsPerM2;
         chipBudget += area * ChipsPerM2;
         int n = Mathf.Min(14, Mathf.FloorToInt(chipBudget));
@@ -888,37 +905,41 @@ public class PlayerTools : MonoBehaviour
         if (scrapeFxT <= 0f && drive > 0.2f) { scrapeFxT = Mathf.Lerp(0.25f, 0.1f, drive); Fx.Chips(contact + head * 0.02f + Vector3.up * 0.02f, 2); }
     }
 
+    bool EnsureDust()
+    {
+        if (dustMaterial == null) return false;
+        if (dustPs != null) return true;
+        var go = new GameObject("ScrapeDust");
+        dustPs = go.AddComponent<ParticleSystem>();
+        dustPs.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+        var m = dustPs.main;
+        m.loop = false; m.playOnAwake = false; m.maxParticles = 220;
+        m.startLifetime = new ParticleSystem.MinMaxCurve(0.6f, 1.2f);
+        m.startSpeed = new ParticleSystem.MinMaxCurve(0.02f, 0.12f);
+        m.startSize = new ParticleSystem.MinMaxCurve(0.04f, 0.09f);
+        m.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
+        m.startColor = new Color(0.32f, 0.27f, 0.3f, 0.32f);
+        m.gravityModifier = -0.02f;
+        m.simulationSpace = ParticleSystemSimulationSpace.World;
+        var em = dustPs.emission; em.enabled = false;
+        var sh = dustPs.shape; sh.enabled = false;
+        var sz = dustPs.sizeOverLifetime; sz.enabled = true;
+        sz.size = new ParticleSystem.MinMaxCurve(1f, new AnimationCurve(new Keyframe(0f, 0.5f), new Keyframe(1f, 1.8f)));
+        var col = dustPs.colorOverLifetime; col.enabled = true;
+        var g = new Gradient();
+        g.SetKeys(new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+                  new[] { new GradientAlphaKey(0f, 0f), new GradientAlphaKey(1f, 0.15f), new GradientAlphaKey(0f, 1f) });
+        col.color = g;
+        go.GetComponent<ParticleSystemRenderer>().sharedMaterial = dustMaterial;
+        dustPs.Play();
+        return true;
+    }
+
     // Bicagin arkasinda ince obsidyen tozu kalkar (hiz ve bicak genisligiyle)
     float dustAcc;
     void EmitDust(Vector3 contact, Vector3 head, float drive, float halfWidth)
     {
-        if (dustMaterial == null || drive < 0.12f) return;
-        if (dustPs == null)
-        {
-            var go = new GameObject("ScrapeDust");
-            dustPs = go.AddComponent<ParticleSystem>();
-            dustPs.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-            var m = dustPs.main;
-            m.loop = false; m.playOnAwake = false; m.maxParticles = 220;
-            m.startLifetime = new ParticleSystem.MinMaxCurve(0.6f, 1.2f);
-            m.startSpeed = new ParticleSystem.MinMaxCurve(0.02f, 0.12f);
-            m.startSize = new ParticleSystem.MinMaxCurve(0.04f, 0.09f);
-            m.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
-            m.startColor = new Color(0.32f, 0.27f, 0.3f, 0.32f);
-            m.gravityModifier = -0.02f;
-            m.simulationSpace = ParticleSystemSimulationSpace.World;
-            var em = dustPs.emission; em.enabled = false;
-            var sh = dustPs.shape; sh.enabled = false;
-            var sz = dustPs.sizeOverLifetime; sz.enabled = true;
-            sz.size = new ParticleSystem.MinMaxCurve(1f, new AnimationCurve(new Keyframe(0f, 0.5f), new Keyframe(1f, 1.8f)));
-            var col = dustPs.colorOverLifetime; col.enabled = true;
-            var g = new Gradient();
-            g.SetKeys(new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
-                      new[] { new GradientAlphaKey(0f, 0f), new GradientAlphaKey(1f, 0.15f), new GradientAlphaKey(0f, 1f) });
-            col.color = g;
-            go.GetComponent<ParticleSystemRenderer>().sharedMaterial = dustMaterial;
-            dustPs.Play();
-        }
+        if (drive < 0.12f || !EnsureDust()) return;
         dustAcc += Time.deltaTime * drive * (18f + halfWidth * 160f);
         Vector3 lat = Vector3.Cross(Vector3.up, head);
         while (dustAcc >= 1f)
@@ -1129,20 +1150,53 @@ public class PlayerTools : MonoBehaviour
     }
 
 
+    // Kirici ust tabakayi tamamen ufaladi: parcalara ayrilip sacilmaz, yerinde kazinmaya hazir yumusak bir
+    // kirinti tabakasina doner (toz kalkar, catlaklar acilir).
     void OnObsidianBroken(Vector3 p)
     {
-        Fx.Chips(p + Vector3.up * 0.1f, 26);
-        SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.pickaxeHit : null, p, 1f);
-        SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.obsidianBreak : null, p, 1f);
-        player.Shake(0.035f, 0.15f);
-        SpawnCores(p);
-        if (Economy.I != null)
+        Fx.Chips(p + Vector3.up * 0.04f, 5);
+        CrumbleDust(p, 1f);
+        SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.pickaxeHit : null, p, 0.75f, 0.85f);
+        SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.obsidianBreak : null, p, 0.4f, 0.7f);
+        player.Shake(0.02f, 0.12f);
+        int earn = Economy.I != null ? Economy.BreakerMoney(Economy.BreakerTierNow) : 0;
+        if (earn > 0) Economy.I.Earn(earn);
+        SetHint(earn > 0 ? $"+{earn} para  |  Ufalandi - kaziyici (3) ile kazi" : "Ufalandi - kaziyici (3) ile kazi", 1.4f);
+    }
+
+    // Kirilan yerde alcak, yayilan toz bulutu (parca sacilmaz)
+    void CrumbleDust(Vector3 p, float amount)
+    {
+        if (!EnsureDust()) return;
+        int n = Mathf.Max(1, Mathf.RoundToInt(16f * amount));
+        for (int i = 0; i < n; i++)
         {
-            int earn = CurrentTool == Tool.Breaker ? Economy.BreakerMoney(Economy.BreakerTierNow)
-                     : Economy.ToolBreakMoney[Mathf.Clamp(Economy.ToolTier, 0, Economy.ToolNames.Length - 1)];
-            Economy.I.Earn(earn);
-            SetHint($"+{earn} para", 0.9f);
+            Vector2 o = Random.insideUnitCircle * 0.35f;
+            var ep = new ParticleSystem.EmitParams
+            {
+                position = p + new Vector3(o.x, 0.02f, o.y),
+                velocity = new Vector3(o.x * 0.6f, Random.Range(0.05f, 0.25f), o.y * 0.6f),
+                startSize = Random.Range(0.08f, 0.2f),
+                startLifetime = Random.Range(0.8f, 1.6f),
+                applyShapeToPosition = false
+            };
+            dustPs.Emit(ep, 1);
         }
+    }
+
+    // Kazinan kirintinin arasindan cevher cikar: bicagin onunde belirir, kaziyici onu da kepceye alir
+    void RevealCore(Vector3 contact, Vector3 head, float hl)
+    {
+        if (coreItemPrefab == null) return;
+        Vector3 pos = contact + head * (hl + 0.06f);
+        var field = LavaField.I;
+        if (field != null) pos.y = field.HeightAt(pos) + 0.03f;
+        var go = Instantiate(coreItemPrefab, pos, Random.rotation);
+        go.transform.localScale *= Random.Range(0.42f, 0.55f);
+        var item = go.GetComponent<LithicCoreItem>();
+        if (item != null) item.Launch(head * 0.25f + Vector3.up * 0.55f);
+        SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.pickaxeHit : null, pos, 0.14f, Random.Range(1.2f, 1.4f), 0.05f);
+        if (Hint == "") SetHint("Cevher cikti! Kepceye al, kaba koy", 1.2f);
     }
 
     // ---------- Kiricilar: cekic/balyoz (vur), matkap/kirici (sol tik basili tut) ----------
@@ -1212,11 +1266,16 @@ public class PlayerTools : MonoBehaviour
         switch (field.Mine(p, Economy.BreakerRadius(t), Economy.BreakerPower(t)))
         {
             case MineResult.None:
-                if (Hint == "") SetHint(field.DigAt(p) > 0.97f ? "Ana kayaya ulastin" : "Once lavi suyla sogut", 0.8f);
+                if (Hint == "") SetHint(field.DigAt(p) > 0.97f ? "Ana kayaya ulastin" : "Once lavi suyla (1) sogut", 0.8f);
                 break;
             case MineResult.Chipped:
                 drillFxT -= Economy.BreakerTempo(t);
-                if (drillFxT <= 0f) { drillFxT = 0.09f; Fx.Chips(p + Vector3.up * 0.04f, 3); }
+                if (drillFxT <= 0f) { drillFxT = 0.09f; Fx.Chips(p + Vector3.up * 0.03f, 1); CrumbleDust(p, 0.12f); }
+                break;
+            case MineResult.AlreadySoft:
+                drillFxT -= Economy.BreakerTempo(t);
+                if (drillFxT <= 0f) { drillFxT = 0.2f; CrumbleDust(p, 0.08f); }
+                if (Hint == "") SetHint("Burasi ufalandi - kaziyici (3) ile kazi", 1f);
                 break;
             case MineResult.Broken:
                 OnObsidianBroken(p);
@@ -1310,12 +1369,18 @@ public class PlayerTools : MonoBehaviour
                 switch (field.Mine(p, Economy.BreakerRadius(t), Economy.BreakerPower(t)))
                 {
                     case MineResult.None:
-                        SetHint(field.DigAt(p) > 0.97f ? "Ana kayaya ulastin" : "Once lavi suyla sogut");
+                        SetHint(field.DigAt(p) > 0.97f ? "Ana kayaya ulastin" : "Once lavi suyla (1) sogut");
                         break;
                     case MineResult.Chipped:
-                        Fx.Chips(p + Vector3.up * 0.05f);
+                        Fx.Chips(p + Vector3.up * 0.04f, 3);
+                        CrumbleDust(p, 0.45f);
                         SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.pickaxeHit : null, p, 1f, 1f - 0.12f * heavy);
                         player.Shake(0.02f + 0.02f * heavy, 0.1f);
+                        break;
+                    case MineResult.AlreadySoft:
+                        CrumbleDust(p, 0.3f);
+                        SfxPlayer.Play(SfxPlayer.I != null ? SfxPlayer.I.pickaxeHit : null, p, 0.5f, 0.7f);
+                        SetHint("Burasi zaten ufalandi - kaziyici (3) ile kazi", 1.4f);
                         break;
                     case MineResult.Broken:
                         OnObsidianBroken(p);

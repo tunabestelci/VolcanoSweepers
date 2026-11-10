@@ -127,7 +127,7 @@ public class BreakerTest : MonoBehaviour
 
         if (mode == "scrape")
         {
-            eco.toolTier = 0; eco.breakerTier = 0;
+            eco.toolTier = 0; eco.breakerTier = 1;
             tools.DoEquip(Tool.Scraper);
             var fFocus = typeof(PlayerTools).GetField("scrapeFocus", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
             Vector3 f0 = Vector3.zero;
@@ -140,6 +140,7 @@ public class BreakerTest : MonoBehaviour
                 player.LookAt(p);
                 field.AddCrust(p, 4.5f, 1f);
                 field.AddCrust(p, 3.0f, 1f);
+                field.Mine(p, 2.6f, 1f);                  // once kir: kazima yalnizca ufalanmis kabukta
                 yield return new WaitForSeconds(0.2f);
                 tools.botHoldScrape = true;
                 yield return new WaitForSeconds(0.6f);
@@ -238,7 +239,7 @@ public class BreakerTest : MonoBehaviour
             var deb0 = ScrapeDebris.Ensure();
             for (int t = 0; t < Economy.ToolNames.Length; t++)
             {
-                eco.toolTier = t; eco.breakerTier = 0;
+                eco.toolTier = t; eco.breakerTier = 1;
                 tools.botHoldScrape = false;
                 yield return new WaitForSeconds(0.4f);
                 tools.DoEquip(Tool.Buckets);
@@ -252,7 +253,7 @@ public class BreakerTest : MonoBehaviour
                     Vector3 p = Stage();
                     yield return new WaitForSeconds(0.6f);
                     player.LookAt(p);
-                    field.AddCrust(p, 4.5f, 1f); field.AddCrust(p, 3.0f, 1f);
+                    field.AddCrust(p, 4.5f, 1f); field.AddCrust(p, 3.0f, 1f); field.Mine(p, 2.6f, 1f);
                     yield return new WaitForSeconds(0.3f);
                     if (attempt == 0) yield return Shot($"s{t}_hand");
                     tools.botHoldScrape = true;
@@ -279,6 +280,105 @@ public class BreakerTest : MonoBehaviour
                 yield return new WaitForSeconds(1.0f);
                 Log($"   scoop grams={tools.LastScoopGrams:F0} money+={eco.money - m0}");
             }
+        }
+
+        // Oyun dongusu: su ile kabuk > kirmadan kazinmaz > cekicle ufala > her yone (daire) kazi > topla
+        if (mode == "loop")
+        {
+            Log($"start loadout: tool={eco.toolTier} breaker={eco.breakerTier} ({Economy.BreakerNames[eco.breakerTier]}) vessel={eco.vesselTier}");
+            var fDir = typeof(PlayerTools).GetField("scrapeToolDir", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var fFocus = typeof(PlayerTools).GetField("scrapeFocus", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Vector3 p = Vector3.zero;
+            for (int attempt = 0; attempt < 12; attempt++)
+            {
+                p = Stage();
+                yield return new WaitForSeconds(0.6f);
+                player.LookAt(p);
+                yield return new WaitForSeconds(0.2f);
+                var ray = new Ray(player.cam.transform.position, player.cam.transform.forward);
+                if (field.Raycast(ray, tools.reach, out var hp) && field.IsLava(hp, 1.5f) && (hp - p).magnitude < 0.6f) break;
+                Log($"stage attempt {attempt} unreachable");
+            }
+            field.AddCrust(p, 4.5f, 1f); field.AddCrust(p, 3.0f, 1f);
+            yield return new WaitForSeconds(0.3f);
+            Log($"crust={field.CrustAt(p):F2} broken={field.BrokenAt(p):F2}");
+            // 1) kirmadan kazima denemesi
+            tools.DoEquip(Tool.Scraper);
+            yield return new WaitForSeconds(0.3f);
+            tools.botHoldScrape = true;
+            yield return new WaitForSeconds(0.5f);
+            float tq = Time.time;
+            while (Time.time - tq < 1.6f) { tools.botScrapeDelta = new Vector2(0f, 4f); yield return null; }
+            tools.botScrapeDelta = Vector2.zero;
+            Log($"unbroken scrape: tipLoad={tools.TipLoad:F1} g hint='{tools.Hint}'");
+            yield return Shot("loop_1_unbroken");
+            tools.botHoldScrape = false;
+            yield return new WaitForSeconds(1.0f);
+            // 2) cekicle ufala
+            tools.DoEquip(Tool.Breaker);
+            yield return new WaitForSeconds(0.5f);
+            int m0 = eco.money;
+            for (int k = 0; k < 4; k++)
+            {
+                player.LookAt(p);
+                yield return new WaitForSeconds(0.25f);
+                tools.DoSwing();
+                yield return new WaitForSeconds(0.42f);
+                if (k == 0) yield return Shot("loop_2_hit");
+                yield return new WaitForSeconds(0.7f);
+                Log($"hit {k}: crust={field.CrustAt(p):F2} broken={field.BrokenAt(p):F2} money={eco.money} cores={LithicCoreItem.All.Count} hint='{tools.Hint}'");
+            }
+            // cevre de ufalansin (daire kazimak icin genis alan)
+            field.Mine(p, 1.4f, 1f);
+            yield return new WaitForSeconds(0.4f);
+            yield return Shot("loop_3_softened");
+            // 3) her yone kazima: daire ciz
+            tools.DoEquip(Tool.Scraper);
+            yield return new WaitForSeconds(0.3f);
+            player.LookAt(p);
+            yield return new WaitForSeconds(0.2f);
+            tools.botHoldScrape = true;
+            yield return new WaitForSeconds(0.5f);
+            float c0 = field.CrustAt(p);
+            float t0 = Time.time; float lastA = 999f; float turned = 0f;
+            int cores0 = LithicCoreItem.All.Count;
+            while (Time.time - t0 < 4.0f)
+            {
+                float tt = Time.time - t0;
+                float ang = tt * 2.2f;                                   // ~1.4 tur
+                tools.botScrapeDelta = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * 4.2f;
+                Vector3 d = (Vector3)fDir.GetValue(tools);
+                float a = Mathf.Atan2(d.x, d.z) * Mathf.Rad2Deg;
+                if (lastA < 900f) turned += Mathf.DeltaAngle(lastA, a);
+                lastA = a;
+                if (Mathf.Abs(tt - 1.0f) < 0.02f) yield return Shot("loop_4_circle_a");
+                if (Mathf.Abs(tt - 2.4f) < 0.02f) yield return Shot("loop_4_circle_b");
+                yield return null;
+            }
+            tools.botScrapeDelta = Vector2.zero;
+            Vector3 fp = (Vector3)fFocus.GetValue(tools);
+            Log($"circle scrape: tool turned {turned:F0} deg, tipLoad={tools.TipLoad:F1}/{tools.TipCapacity:F0} g, crust {c0:F2}->{field.CrustAt(p):F2} broken@p={field.BrokenAt(p):F2} @focus={field.BrokenAt(fp):F2} coresRevealed={LithicCoreItem.All.Count - cores0}");
+            yield return Shot("loop_5_pile");
+            tools.botHoldScrape = false;
+            yield return new WaitForSeconds(1.6f);
+            Log($"scoop: grams={tools.LastScoopGrams:F0} money {m0} -> {eco.money} ores={tools.CoreCount}/{tools.CoreCapacity}");
+            yield return Shot("loop_6_after");
+            // 4) ayni yeri tekrar tekrar kirip kaz: kabuk incelir, sonunda lav acilir
+            int cycles = 0;
+            for (; cycles < 6 && field.CrustAt(p) >= 0.3f; cycles++)
+            {
+                field.Mine(p, 1.4f, 1f);
+                float c1 = field.CrustAt(p);
+                tools.botHoldScrape = true;
+                yield return new WaitForSeconds(0.4f);
+                float ts = Time.time;
+                while (Time.time - ts < 3f) { float ang = (Time.time - ts) * 2.6f; tools.botScrapeDelta = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * 3.4f; yield return null; }
+                tools.botScrapeDelta = Vector2.zero;
+                tools.botHoldScrape = false;
+                yield return new WaitForSeconds(1.4f);
+                Log($"cycle {cycles}: crust {c1:F2} -> {field.CrustAt(p):F2}, lavaLevel={field.LavaLevel:F3} money={eco.money}");
+            }
+            yield return Shot("loop_7_cycles");
         }
 
         if (mode == "shop" || mode == "all")

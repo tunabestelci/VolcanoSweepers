@@ -10,7 +10,7 @@ public class Economy : MonoBehaviour
 
     public int money;
     public int toolTier;      // kaziyici: 0 kasik, 1 kepce, 2 spatula, 3 kucuk kurek, 4 orta kurek, 5 buyuk kurek
-    public int breakerTier;   // kirici: 0 yok, 1..20 sahip olunan en iyi kirici
+    public int breakerTier = 1;   // kirici: 1..20 sahip olunan en iyi kirici (oyun basi 1: marangoz cekici)
     public int vesselTier;    // 0 bardak, 1 surahi, 2 kova
 
     // ---------- Kaziyicilar ----------
@@ -109,7 +109,12 @@ public class Economy : MonoBehaviour
 
     public event Action Changed;
 
-    void Awake() { I = this; }
+    void Awake()
+    {
+        I = this;
+        // oyun basi: su kabi (bardak), kirici (marangoz cekici) ve kaziyici (kasik) elde. Kirmadan kazinamaz.
+        if (breakerTier < 1) breakerTier = 1;
+    }
 
     public static int ToolTier => I != null ? I.toolTier : 1;
     public static int BreakerTierNow => I != null ? I.breakerTier : 0;
